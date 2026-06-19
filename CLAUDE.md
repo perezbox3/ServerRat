@@ -28,27 +28,27 @@ Two machines. Do not confuse them.
 | Machine | Identity | Purpose |
 |---|---|---|
 | Local dev | `Anthony@Windows` (this machine) | Where code is written and tested. Claude Code runs here. |
-| Production server | `perezbox3@localhost` (Linode) | Serves `serverrat.perezbox3.com`. Apache + SSL + Node via PM2. |
+| Production server | `ssh personal` | Serves `serverrat.perezbox3.com`. Same server as gamepickle.perezbox3.com. nginx + SSL + Node via PM2. |
 
-**Claude Code only has direct access to the local dev machine.** Production changes (deploy, PM2 restart) are run by Anthony in his open Linode SSH session — one persistent connection, never a new one per command.
+**Claude Code only has direct access to the local dev machine.** Production changes (deploy, PM2 restart) are run by Anthony in his open SSH session — one persistent connection, never a new one per command.
 
-Shares the Linode with `relay.perezbox3.com` (port 3001) and `verifyfiltering.com`. **ServerRat runs on port 3003** — confirm it is free on the Linode before deploying.
+Same server as gamepickle.perezbox3.com. **ServerRat runs on port 3003** — confirm it is free on the personal server before deploying.
 
 ---
 
 ## Deployment
 
 ```bash
-# On the Linode (perezbox3@localhost), in the existing SSH session
+# On the personal server, in the existing SSH session
 cd /var/www/serverrat.perezbox3.com
 git pull
 npm install --production
 pm2 restart serverrat   # or: pm2 start ecosystem.config.cjs && pm2 save
 ```
 
-SSL (one-time): `sudo certbot --apache -d serverrat.perezbox3.com`
+SSL (one-time): `sudo certbot --nginx -d serverrat.perezbox3.com`
 
-Deployed to `/var/www/serverrat.perezbox3.com`. Apache reverse-proxies to Node on 3003 (same pattern as Relay, minus the WebSocket block — ServerRat has no sockets).
+Deployed to `/var/www/serverrat.perezbox3.com`. nginx reverse-proxies to Node on 3003. See `deploy/nginx.conf` for the vhost config.
 
 ---
 
@@ -91,7 +91,7 @@ Deployed to `/var/www/serverrat.perezbox3.com`. Apache reverse-proxies to Node o
 │   └── routes/servers.test.js
 ├── docs/
 │   └── battlemetrics-findings.md  — the API data contract (from Task 1 spike)
-├── deploy/apache.conf
+├── deploy/nginx.conf
 ├── ecosystem.config.cjs
 ├── .env.example
 └── serverrat.md          — implementation plan (task checklist)
