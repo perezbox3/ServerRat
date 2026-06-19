@@ -1,0 +1,9 @@
+{
+  "name": "serverrat",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js"
+  }
+}
