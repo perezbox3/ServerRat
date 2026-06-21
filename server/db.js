@@ -11,6 +11,8 @@ const SCHEMA = `
     group_limit     TEXT,
     current_players INTEGER,
     max_players     INTEGER,
+    last_wipe       TEXT,
+    next_wipe       TEXT,
     raw             TEXT NOT NULL,
     updated_at      TEXT NOT NULL
   );
@@ -35,10 +37,10 @@ export function createDb(path) {
   db.exec(SCHEMA)
 
   return {
-    upsertServer({ id, name, region, type, wipe_day, wipe_freq, group_limit, current_players, max_players, raw }) {
+    upsertServer({ id, name, region, type, wipe_day, wipe_freq, group_limit, current_players, max_players, last_wipe, next_wipe, raw }) {
       db.prepare(`
-        INSERT INTO servers (id, name, region, type, wipe_day, wipe_freq, group_limit, current_players, max_players, raw, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO servers (id, name, region, type, wipe_day, wipe_freq, group_limit, current_players, max_players, last_wipe, next_wipe, raw, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           region = excluded.region,
@@ -48,10 +50,13 @@ export function createDb(path) {
           group_limit = excluded.group_limit,
           current_players = excluded.current_players,
           max_players = excluded.max_players,
+          last_wipe = excluded.last_wipe,
+          next_wipe = excluded.next_wipe,
           raw = excluded.raw,
           updated_at = excluded.updated_at
       `).run(id, name ?? null, region ?? null, type ?? null, wipe_day ?? null, wipe_freq ?? null,
-             group_limit ?? null, current_players ?? null, max_players ?? null, raw,
+             group_limit ?? null, current_players ?? null, max_players ?? null,
+             last_wipe ?? null, next_wipe ?? null, raw,
              new Date().toISOString())
       return this.getServer(id)
     },
