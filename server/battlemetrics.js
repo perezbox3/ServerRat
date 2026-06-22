@@ -71,19 +71,26 @@ export function createBmClient({
   const headers = token ? { Authorization: `Bearer ${token}` } : {}
 
   return {
-    async listRustServers(filters = {}) {
-      const url = new URL(`${baseUrl}/servers`)
-      url.searchParams.set('filter[game]', 'rust')
-      url.searchParams.set('filter[status]', 'online')
-      url.searchParams.set('page[size]', '100')
-      url.searchParams.set('fields[server]', 'name,players,maxPlayers,rank,status,country,details')
-      if (filters.country) url.searchParams.set('filter[countries][]', filters.country)
-      if (filters.search) url.searchParams.set('filter[search]', filters.search)
+    async listRustServers(filters = {}, { maxPages = 3 } = {}) {
+      const results = []
+      for (let page = 0; page < maxPages; page++) {
+        const url = new URL(`${baseUrl}/servers`)
+        url.searchParams.set('filter[game]', 'rust')
+        url.searchParams.set('filter[status]', 'online')
+        url.searchParams.set('page[size]', '100')
+        url.searchParams.set('page[offset]', String(page * 100))
+        url.searchParams.set('fields[server]', 'name,players,maxPlayers,rank,status,country,details')
+        if (filters.country) url.searchParams.set('filter[countries][]', filters.country)
+        if (filters.search) url.searchParams.set('filter[search]', filters.search)
 
-      const res = await fetchFn(url.toString(), { headers })
-      if (!res.ok) throw new Error(`BattleMetrics ${res.status}`)
-      const json = await res.json()
-      return (json.data || []).map(mapServer)
+        const res = await fetchFn(url.toString(), { headers })
+        if (!res.ok) throw new Error(`BattleMetrics ${res.status}`)
+        const json = await res.json()
+        const batch = (json.data || []).map(mapServer)
+        results.push(...batch)
+        if (batch.length < 100) break
+      }
+      return results
     },
 
     async getServerHistory(serverId, { start, stop }) {

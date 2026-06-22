@@ -47,6 +47,30 @@ describe('createBmClient', () => {
       const bm = createBmClient({ fetch, baseUrl: BASE })
       await expect(bm.listRustServers()).rejects.toThrow('BattleMetrics 429')
     })
+
+    it('paginates until a partial page is returned', async () => {
+      const full = { data: Array(100).fill(null).map((_, i) => ({
+        id: String(i), attributes: { name: 'S', players: 1, maxPlayers: 200, country: 'US', details: {} }
+      })) }
+      const partial = { data: [{ id: '100', attributes: { name: 'S2', players: 1, maxPlayers: 200, country: 'US', details: {} } }] }
+      const fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => full })
+        .mockResolvedValueOnce({ ok: true, json: async () => partial })
+      const bm = createBmClient({ fetch, baseUrl: BASE })
+      const servers = await bm.listRustServers()
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(servers).toHaveLength(101)
+    })
+
+    it('stops at maxPages even when pages are full', async () => {
+      const full = { data: Array(100).fill(null).map((_, i) => ({
+        id: String(i), attributes: { name: 'S', players: 1, maxPlayers: 200, country: 'US', details: {} }
+      })) }
+      const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => full })
+      const bm = createBmClient({ fetch, baseUrl: BASE })
+      await bm.listRustServers({}, { maxPages: 2 })
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('getServerHistory', () => {
