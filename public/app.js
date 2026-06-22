@@ -261,7 +261,7 @@ function renderCard(s, opts = {}) {
     curveSection = `
       <div class="dz-curve-head"><span class="curve-label">POP CURVE</span></div>
       <div class="emptycurve">
-        <img src="assets/sr-mascot.png" class="ec-mascot-img" alt="" />
+        <div class="ec-mascot"><img src="assets/sr-mascot.png" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated" alt="" /></div>
         <div class="ec-txt"><div class="ec-h">UNMAPPED</div><div class="ec-p">The rat hasn't scouted this one yet.</div></div>
       </div>`
   }
