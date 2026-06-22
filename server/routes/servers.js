@@ -15,19 +15,11 @@ export function createServersRouter({ db, bm }) {
   const router = Router()
   const listTtl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300', 10)
 
-  router.get('/', async (req, res) => {
+  // List is now populated entirely by the background collector (scripts/collect.js).
+  // This route is a pure DB read — no BM calls, always fast.
+  router.get('/', (req, res) => {
     try {
       const filters = sanitize(req.query)
-      if (!filters.search && db.isStale('servers-list', listTtl)) {
-        try {
-          const servers = await bm.listRustServers()
-          for (const s of servers) db.upsertServer(s)
-          db.touchCache('servers-list')
-        } catch (e) {
-          console.error('[servers] BM list refresh failed:', e.message)
-          // Serve stale cache — a BM blip never takes down the list
-        }
-      }
       res.json(db.listServers(filters))
     } catch (e) {
       console.error('[servers] list error:', e.message)

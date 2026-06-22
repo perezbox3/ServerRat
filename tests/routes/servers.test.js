@@ -32,53 +32,32 @@ const srv2 = {
 }
 
 describe('GET /api/servers', () => {
-  it('returns filtered servers from DB when cache is fresh', async () => {
+  it('returns filtered servers from DB', async () => {
     const db = makeDb()
     const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
-    db.touchCache('servers-list')
 
     const res = await request(createApp({ db, bm })).get('/api/servers?type=2x')
 
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(1)
     expect(res.body[0].id).toBe('srv-1')
+    // List route never calls BM — collector handles that
     expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
-  it('fetches from BM and hydrates DB when cache is stale', async () => {
+  it('returns all servers when no filter applied', async () => {
     const db = makeDb()
-    const bm = makeBm({ listRustServers: vi.fn(async () => [srv1]) })
-
-    const res = await request(createApp({ db, bm })).get('/api/servers')
-
-    expect(res.status).toBe(200)
-    expect(bm.listRustServers).toHaveBeenCalledOnce()
-    expect(db.getServer('srv-1')).not.toBeNull()
-  })
-
-  it('serves from DB on second request without calling BM again', async () => {
-    const db = makeDb()
-    const bm = makeBm({ listRustServers: vi.fn(async () => [srv1]) })
-    const app = createApp({ db, bm })
-
-    await request(app).get('/api/servers')
-    await request(app).get('/api/servers')
-
-    expect(bm.listRustServers).toHaveBeenCalledOnce()
-  })
-
-  it('serves stale cache when BM is unavailable', async () => {
-    const db = makeDb()
+    const bm = makeBm()
     db.upsertServer(srv1)
-    const bm = makeBm({ listRustServers: vi.fn(async () => { throw new Error('BM down') }) })
+    db.upsertServer(srv2)
 
     const res = await request(createApp({ db, bm })).get('/api/servers')
 
     expect(res.status).toBe(200)
-    expect(res.body).toHaveLength(1)
-    expect(res.body[0].id).toBe('srv-1')
+    expect(res.body).toHaveLength(2)
+    expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
   it('filters by server name substring when search param is provided', async () => {

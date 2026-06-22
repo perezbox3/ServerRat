@@ -49,6 +49,7 @@ function mapServer(raw) {
   const settings = details.rust_settings || {}
   return {
     id: raw.id,
+    steam_id: details.serverSteamId || null,
     name: attr.name || null,
     region: attr.country || null,
     type: deriveType(details, settings),
@@ -59,6 +60,10 @@ function mapServer(raw) {
     max_players: attr.maxPlayers ?? null,
     last_wipe: details.rust_last_wipe || null,
     next_wipe: details.rust_next_wipe || null,
+    ip: attr.ip || null,
+    queue: details.rust_queued_players ?? 0,
+    map_seed: details.rust_world_seed ?? null,
+    map_size: details.rust_world_size ?? null,
     raw: JSON.stringify(raw),
   }
 }
@@ -95,6 +100,21 @@ export function createBmClient({
         if (batch.length < 100) break
       }
       return results
+    },
+
+    // Single-page fetch used by the collector (which handles its own sleep + loop)
+    async fetchPage(page, filters = {}) {
+      const url = new URL(`${baseUrl}/servers`)
+      url.searchParams.set('filter[game]', 'rust')
+      url.searchParams.set('filter[status]', 'online')
+      url.searchParams.set('page[size]', '100')
+      url.searchParams.set('page[offset]', String(page * 100))
+      url.searchParams.set('fields[server]', 'name,players,maxPlayers,rank,status,country,ip,port,details')
+      if (filters.country) url.searchParams.set('filter[countries][]', filters.country)
+      const res = await fetchFn(url.toString(), { headers })
+      if (!res.ok) throw new Error(`BattleMetrics ${res.status}`)
+      const json = await res.json()
+      return (json.data || []).map(mapServer)
     },
 
     async getServerHistory(serverId, { start, stop }) {

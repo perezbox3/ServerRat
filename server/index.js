@@ -11,3 +11,4 @@ const bm = createBmClient({
 })
 const app = createApp({ db, bm })
 app.listen(PORT, () => console.log(`ServerRat listening on ${PORT}`))
+if (!process.env.STEAM_API_KEY) console.warn('[server] STEAM_API_KEY not set — collector Steam phase will be skipped')
