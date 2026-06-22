@@ -1,3 +1,5 @@
+import { parseTitle } from './parse.js'
+
 const RUST_APP_ID = 252490
 
 function decodeGametype(gametype = '') {
@@ -35,6 +37,17 @@ function deriveGroupLimit(team_size) {
 export function mapSteamServer(raw) {
   const { last_wipe, game_mode, team_size, queue } = decodeGametype(raw.gametype)
   const ip = raw.addr ? raw.addr.split(':')[0] : null
+  const parsed = parseTitle(raw.name)
+
+  // Steam's gametype is authoritative for vanilla (gm field); for multiplier rates
+  // we rely on BM's gather data, but title parsing covers the gap.
+  const type = deriveType(game_mode) ?? parsed.type
+
+  // Steam's ts field is authoritative when it's a real limit (> 0).
+  // When ts=0 (no enforced limit), fall back to title parsing.
+  const steamGroup = deriveGroupLimit(team_size)
+  const group_limit = steamGroup !== 'any' ? steamGroup : (parsed.group_limit ?? 'any')
+
   return {
     steam_id: raw.steamid ?? null,
     name: raw.name ?? null,
@@ -44,8 +57,10 @@ export function mapSteamServer(raw) {
     max_players: raw.max_players ?? null,
     map_name: raw.map ?? null,
     last_wipe,
-    type: deriveType(game_mode),
-    group_limit: deriveGroupLimit(team_size),
+    type,
+    group_limit,
+    wipe_day: parsed.wipe_day,
+    wipe_freq: parsed.wipe_freq,
     queue,
   }
 }

@@ -498,6 +498,7 @@ function renderDetail(s, backScreen) {
             <div><dt>Last wiped</dt><dd>${s.last_wipe ? daysSince(s.last_wipe) : '—'}</dd></div>
             ${s.next_wipe ? `<div><dt>Next wipe</dt><dd>${daysUntil(s.next_wipe)}</dd></div>` : ''}
             ${s.queue > 0 ? `<div><dt>Queue</dt><dd>${esc(String(s.queue))} waiting</dd></div>` : ''}
+            ${s.url ? `<div><dt>Website</dt><dd><a class="facts-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a></dd></div>` : ''}
             ${s.ip && s.game_port ? `<div class="facts-connect"><dt>Direct connect</dt><dd>
               <a class="connect-link" href="steam://connect/${esc(s.ip)}:${esc(String(s.game_port))}">${esc(s.ip)}:${esc(String(s.game_port))}</a>
               <button class="copy-btn" data-copy="${esc(s.ip)}:${esc(String(s.game_port))}">COPY</button>
@@ -507,21 +508,23 @@ function renderDetail(s, backScreen) {
       </section>
     </div>
 
-    ${s.map_seed && s.map_size ? `
+    ${s.map_seed != null && s.map_size != null ? `
     <section class="panel dt-map">
       <div class="panel-head">
         <span class="panel-title">MAP</span>
         <span class="panel-sub">${esc(s.map_name) || 'Procedural'} · size ${esc(String(s.map_size))} · seed ${esc(String(s.map_seed))}</span>
       </div>
       <div class="panel-body map-body">
-        <div class="map-img-wrap">
-          <img class="map-img"
-            src="https://rustmaps.com/img/map/${s.map_size}_${s.map_seed}.jpg"
-            alt="Rust map preview"
-            onerror="this.classList.add('map-img-fail')"
-          />
+        <div class="map-iframe-wrap">
+          <iframe
+            class="map-iframe"
+            src="https://rustmaps.com/map/${esc(String(s.map_size))}/${esc(String(s.map_seed))}"
+            title="Rust map — size ${esc(String(s.map_size))} seed ${esc(String(s.map_seed))}"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+          ></iframe>
         </div>
-        <a class="btn-map-link" href="https://rustmaps.com/map/${s.map_size}/${s.map_seed}" target="_blank" rel="noopener">VIEW FULL MAP ON RUSTMAPS →</a>
+        <a class="btn-map-link" href="https://rustmaps.com/map/${esc(String(s.map_size))}/${esc(String(s.map_seed))}" target="_blank" rel="noopener">VIEW FULL MAP ON RUSTMAPS →</a>
       </div>
     </section>` : ''}
 

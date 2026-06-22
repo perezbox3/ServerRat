@@ -45,16 +45,17 @@ export function createDb(path) {
   try { db.exec('ALTER TABLE servers ADD COLUMN map_size INTEGER') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN queue INTEGER DEFAULT 0') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN description TEXT') } catch {}
+  try { db.exec('ALTER TABLE servers ADD COLUMN url TEXT') } catch {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_steam_id ON servers(steam_id) WHERE steam_id IS NOT NULL') } catch {}
 
   return {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
                    current_players, max_players, last_wipe, next_wipe,
-                   ip, queue, map_seed, map_size, description, raw }) {
+                   ip, queue, map_seed, map_size, description, url, raw }) {
       db.prepare(`
         INSERT INTO servers (id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
-          current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, description, raw, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, description, url, raw, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           steam_id      = COALESCE(excluded.steam_id, steam_id),
           name          = excluded.name,
@@ -72,6 +73,7 @@ export function createDb(path) {
           map_seed      = COALESCE(excluded.map_seed, map_seed),
           map_size      = COALESCE(excluded.map_size, map_size),
           description   = COALESCE(excluded.description, description),
+          url           = COALESCE(excluded.url, url),
           raw           = excluded.raw,
           updated_at    = excluded.updated_at
       `).run(id, steam_id ?? null, name ?? null, region ?? null, type ?? null,
@@ -79,24 +81,36 @@ export function createDb(path) {
              current_players ?? null, max_players ?? null,
              last_wipe ?? null, next_wipe ?? null,
              ip ?? null, queue ?? 0, map_seed ?? null, map_size ?? null,
-             description ?? null, raw, new Date().toISOString())
+             description ?? null, url ?? null, raw, new Date().toISOString())
       return this.getServer(id)
     },
 
-    // Enrich an existing BM server with Steam's game_port/map_name/queue,
-    // or insert a Steam-only server with a synthetic 'steam_{id}' primary key.
+    // Enrich an existing BM server with Steam data, or insert a Steam-only server.
+    // For BM matches: fills in ip/port/map/queue always, and type/group_limit/
+    // wipe fields only when BM has nulls or generic fallback values.
     upsertSteamServer({ steam_id, name, ip, game_port, current_players, max_players,
-                        map_name, last_wipe, type, group_limit, queue }) {
+                        map_name, last_wipe, type, group_limit, wipe_day, wipe_freq, queue }) {
       if (!steam_id) return false
       const existing = db.prepare('SELECT id FROM servers WHERE steam_id = ?').get(steam_id)
       if (existing) {
         db.prepare(`
           UPDATE servers
-          SET ip = COALESCE(ip, ?), game_port = ?, map_name = ?,
-              queue = ?, current_players = ?, updated_at = ?
+          SET ip            = COALESCE(ip, ?),
+              game_port     = ?,
+              map_name      = ?,
+              queue         = ?,
+              current_players = ?,
+              type          = CASE WHEN (type IS NULL OR type = 'community') THEN COALESCE(?, type) ELSE type END,
+              group_limit   = CASE WHEN (group_limit IS NULL OR group_limit = 'any') THEN COALESCE(?, group_limit) ELSE group_limit END,
+              last_wipe     = COALESCE(last_wipe, ?),
+              wipe_day      = COALESCE(wipe_day, ?),
+              wipe_freq     = COALESCE(wipe_freq, ?),
+              updated_at    = ?
           WHERE steam_id = ?
         `).run(ip ?? null, game_port ?? null, map_name ?? null,
                queue ?? 0, current_players ?? null,
+               type ?? null, group_limit ?? null,
+               last_wipe ?? null, wipe_day ?? null, wipe_freq ?? null,
                new Date().toISOString(), steam_id)
         return true
       }
@@ -104,13 +118,15 @@ export function createDb(path) {
       const id = 'steam_' + steam_id
       db.prepare(`
         INSERT INTO servers
-          (id, steam_id, name, type, group_limit, current_players, max_players,
-           last_wipe, ip, game_port, map_name, queue, raw, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, steam_id, name, type, group_limit, wipe_day, wipe_freq,
+           current_players, max_players, last_wipe, ip, game_port, map_name, queue, raw, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name            = excluded.name,
           type            = COALESCE(type, excluded.type),
           group_limit     = COALESCE(group_limit, excluded.group_limit),
+          wipe_day        = COALESCE(wipe_day, excluded.wipe_day),
+          wipe_freq       = COALESCE(wipe_freq, excluded.wipe_freq),
           current_players = excluded.current_players,
           last_wipe       = COALESCE(last_wipe, excluded.last_wipe),
           ip              = excluded.ip,
@@ -119,6 +135,7 @@ export function createDb(path) {
           queue           = excluded.queue,
           updated_at      = excluded.updated_at
       `).run(id, steam_id, name ?? null, type ?? null, group_limit ?? null,
+             wipe_day ?? null, wipe_freq ?? null,
              current_players ?? null, max_players ?? null, last_wipe ?? null,
              ip ?? null, game_port ?? null, map_name ?? null, queue ?? 0,
              '{}', new Date().toISOString())

@@ -68,6 +68,35 @@ describe('mapSteamServer', () => {
     expect(mapSteamServer(VANILLA_SERVER).group_limit).toBe('any')
   })
 
+  it('falls back to title parsing for group_limit when ts=0', () => {
+    const s = mapSteamServer({
+      ...FAKE_SERVER,
+      steamid: '33333',
+      name: 'Rust Duo Only | 2x | Weekly',
+      gametype: 'mp200,cp80,ptrak,qp0,v2627,born1780000000,gmrust,ts0',
+    })
+    expect(s.group_limit).toBe('duo')
+  })
+
+  it('extracts wipe_day and wipe_freq from server name', () => {
+    const s = mapSteamServer(FAKE_SERVER)  // 'Rusty Moose |US Biweekly|'
+    expect(s.wipe_freq).toBe('biweekly')
+    expect(s.wipe_day).toBeNull()
+  })
+
+  it('extracts wipe_day and group_limit from name when ts=0', () => {
+    const s = mapSteamServer({
+      ...FAKE_SERVER,
+      steamid: '44444',
+      name: 'Rust 2x Fridays Weekly Solo',
+      gametype: 'mp200,cp50,ptrak,qp0,v2627,born1780000000,gmrust,ts0',
+    })
+    expect(s.wipe_day).toBe('Friday')
+    expect(s.wipe_freq).toBe('weekly')
+    expect(s.type).toBe('2x')
+    expect(s.group_limit).toBe('solo')
+  })
+
   it('handles missing gametype gracefully', () => {
     const s = mapSteamServer({ ...FAKE_SERVER, gametype: undefined })
     expect(s.last_wipe).toBeNull()

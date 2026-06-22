@@ -1,6 +1,28 @@
+import { parseTitle } from './parse.js'
+
+// Re-export so existing imports from battlemetrics.js keep working.
+export { parseTitle }
+
 const DAY_NAMES = {
   MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday',
   FR: 'Friday', SA: 'Saturday', SU: 'Sunday',
+}
+
+// Returns the server type only when BM has explicit structured evidence.
+// 'community' and 'modded' are too generic — let title parsing override them.
+function deriveTypeStrict(details, settings) {
+  if (details.official) return 'official'
+  const gather = settings.rates?.gather
+  if (typeof gather === 'number') {
+    if (gather === 1) return 'vanilla'
+    if (gather === 2) return '2x'
+    if (gather === 5) return '5x'
+    if (gather === 10) return '10x'
+    return `${gather}x`
+  }
+  const t = details.rust_type
+  if (t && t !== 'community' && t !== 'modded') return t
+  return null
 }
 
 function deriveType(details, settings) {
@@ -47,15 +69,21 @@ function mapServer(raw) {
   const attr = raw.attributes || {}
   const details = attr.details || {}
   const settings = details.rust_settings || {}
+  const parsed = parseTitle(attr.name)
+
+  // group_limit: only trust BM's numeric limit when it's a real cap (< 999)
+  const hasGroupLimit = typeof settings.groupLimit === 'number' && settings.groupLimit < 999
+  const bmGroupLimit = hasGroupLimit ? deriveGroupLimit(settings) : null
+
   return {
     id: raw.id,
     steam_id: details.serverSteamId || null,
     name: attr.name || null,
     region: attr.country || null,
-    type: deriveType(details, settings),
-    wipe_day: deriveWipeDay(settings),
-    wipe_freq: deriveWipeFreq(details),
-    group_limit: deriveGroupLimit(settings),
+    type: deriveTypeStrict(details, settings) ?? parsed.type ?? deriveType(details, settings),
+    wipe_day: deriveWipeDay(settings) ?? parsed.wipe_day,
+    wipe_freq: deriveWipeFreq(details) ?? parsed.wipe_freq,
+    group_limit: bmGroupLimit ?? parsed.group_limit ?? deriveGroupLimit(settings),
     current_players: attr.players ?? null,
     max_players: attr.maxPlayers ?? null,
     last_wipe: details.rust_last_wipe || null,
@@ -65,6 +93,7 @@ function mapServer(raw) {
     map_seed: details.rust_world_seed ?? null,
     map_size: details.rust_world_size ?? null,
     description: details.rust_description || null,
+    url: details.rust_url || null,
     raw: JSON.stringify(raw),
   }
 }
