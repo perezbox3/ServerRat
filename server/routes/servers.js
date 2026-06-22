@@ -34,8 +34,11 @@ export function createServersRouter({ db, bm }) {
       const server = db.getServer(req.params.id)
       if (!server) return res.status(404).json({ error: 'not found' })
 
+      // Steam-only servers have no BM record — their history must come from
+      // snapshots we collect ourselves; skip the BM history call for them.
+      const hasBmId = !server.id.startsWith('steam_')
       const cacheKey = 'history:' + server.id
-      if (db.isStale(cacheKey, HISTORY_TTL)) {
+      if (hasBmId && db.isStale(cacheKey, HISTORY_TTL)) {
         try {
           const stop = new Date().toISOString()
           const start = new Date(Date.now() - 30 * 86400000).toISOString()
@@ -44,7 +47,6 @@ export function createServersRouter({ db, bm }) {
           db.touchCache(cacheKey)
         } catch (e) {
           console.error(`[servers] BM history failed for ${server.id}:`, e.message)
-          // Fall through — compute curve from whatever snapshots are in the DB
         }
       }
 
