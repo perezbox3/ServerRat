@@ -508,23 +508,17 @@ function renderDetail(s, backScreen) {
       </section>
     </div>
 
-    ${s.map_seed != null && s.map_size != null ? `
+    ${s.map_url ? `
     <section class="panel dt-map">
       <div class="panel-head">
         <span class="panel-title">MAP</span>
-        <span class="panel-sub">${esc(s.map_name) || 'Procedural'} · size ${esc(String(s.map_size))} · seed ${esc(String(s.map_seed))}</span>
+        <span class="panel-sub">${esc(s.map_name) || 'Procedural'}${s.map_size ? ' · size ' + esc(String(s.map_size)) : ''}${s.map_seed != null ? ' · seed ' + esc(String(s.map_seed)) : ''}</span>
       </div>
       <div class="panel-body map-body">
-        <div class="map-iframe-wrap">
-          <iframe
-            class="map-iframe"
-            src="https://rustmaps.com/map/${esc(String(s.map_size))}/${esc(String(s.map_seed))}"
-            title="Rust map — size ${esc(String(s.map_size))} seed ${esc(String(s.map_seed))}"
-            loading="lazy"
-            referrerpolicy="no-referrer-when-downgrade"
-          ></iframe>
-        </div>
-        <a class="btn-map-link" href="https://rustmaps.com/map/${esc(String(s.map_size))}/${esc(String(s.map_seed))}" target="_blank" rel="noopener">VIEW FULL MAP ON RUSTMAPS →</a>
+        ${s.map_thumbnail ? `<a class="map-thumb-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">
+          <img class="map-thumb-img" src="${esc(s.map_thumbnail)}" alt="Rust map" loading="lazy" />
+        </a>` : ''}
+        <a class="btn-map-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">VIEW FULL MAP ON RUSTMAPS →</a>
       </div>
     </section>` : ''}
 

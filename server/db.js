@@ -46,12 +46,14 @@ export function createDb(path) {
   try { db.exec('ALTER TABLE servers ADD COLUMN queue INTEGER DEFAULT 0') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN description TEXT') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN url TEXT') } catch {}
+  try { db.exec('ALTER TABLE servers ADD COLUMN map_url TEXT') } catch {}
+  try { db.exec('ALTER TABLE servers ADD COLUMN map_thumbnail TEXT') } catch {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_steam_id ON servers(steam_id) WHERE steam_id IS NOT NULL') } catch {}
 
   return {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
                    current_players, max_players, last_wipe, next_wipe,
-                   ip, queue, map_seed, map_size, description, url, raw }) {
+                   ip, queue, map_seed, map_size, map_url, map_thumbnail, description, url, raw }) {
       if (!name) return null  // name is NOT NULL in schema; skip rather than throw
       // If another BM entry already owns this steam_id, don't claim it here —
       // avoids UNIQUE constraint failures when BM returns duplicate steam_ids.
@@ -61,8 +63,9 @@ export function createDb(path) {
       }
       db.prepare(`
         INSERT INTO servers (id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
-          current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, description, url, raw, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          current_players, max_players, last_wipe, next_wipe, ip, queue,
+          map_seed, map_size, map_url, map_thumbnail, description, url, raw, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           steam_id      = COALESCE(excluded.steam_id, steam_id),
           name          = excluded.name,
@@ -79,6 +82,8 @@ export function createDb(path) {
           queue         = excluded.queue,
           map_seed      = COALESCE(excluded.map_seed, map_seed),
           map_size      = COALESCE(excluded.map_size, map_size),
+          map_url       = COALESCE(excluded.map_url, map_url),
+          map_thumbnail = COALESCE(excluded.map_thumbnail, map_thumbnail),
           description   = COALESCE(excluded.description, description),
           url           = COALESCE(excluded.url, url),
           raw           = excluded.raw,
@@ -87,7 +92,8 @@ export function createDb(path) {
              wipe_day ?? null, wipe_freq ?? null, group_limit ?? null,
              current_players ?? null, max_players ?? null,
              last_wipe ?? null, next_wipe ?? null,
-             ip ?? null, queue ?? 0, map_seed ?? null, map_size ?? null,
+             ip ?? null, queue ?? 0,
+             map_seed ?? null, map_size ?? null, map_url ?? null, map_thumbnail ?? null,
              description ?? null, url ?? null, raw, new Date().toISOString())
       return this.getServer(id)
     },
@@ -164,7 +170,14 @@ export function createDb(path) {
       if (type)        { conditions.push('type = ?');        params.push(type) }
       if (wipe_day)    { conditions.push('wipe_day = ?');    params.push(wipe_day) }
       if (wipe_freq)   { conditions.push('wipe_freq = ?');   params.push(wipe_freq) }
-      if (group_limit) { conditions.push('group_limit = ?'); params.push(group_limit) }
+      if (group_limit) {
+        if (group_limit === 'any') {
+          conditions.push("(group_limit = 'any' OR (group_limit GLOB '[0-9]*' AND CAST(group_limit AS INTEGER) > 4))")
+        } else {
+          conditions.push('group_limit = ?')
+          params.push(group_limit)
+        }
+      }
       if (search)      { conditions.push('name LIKE ?');     params.push(`%${search}%`) }
       return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params }
     },
