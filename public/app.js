@@ -23,6 +23,18 @@ const HEALTH = {
   unknown: { cls: 'h-unknown', label: 'NO DATA' },
 }
 
+// ── HTML escape (all BM-sourced strings must pass through this) ───────────────
+
+function esc(s) {
+  if (s == null) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // ── Routing ──────────────────────────────────────────────────────────────────
 
 function getRoute() {
@@ -69,9 +81,8 @@ async function postMatch(criteria) {
 
 function normalizeCurve(curve) {
   if (!curve) return null
-  // GET /api/servers/:id returns { values, health, retention }
   if (Array.isArray(curve.values)) return curve
-  // POST /api/match returns the raw curve object { day1, day2, day3, day5, day7, retention }
+  // POST /api/match returns { day1, day2, day3, day5, day7, retention }
   const values = [curve.day1, curve.day2, curve.day3, curve.day5, curve.day7]
   return { values, health: retentionToHealth(curve.retention), retention: curve.retention }
 }
@@ -122,7 +133,8 @@ function healthTag(health) {
 
 function typeBadge(type) {
   const van = type === 'vanilla' ? ' van' : ''
-  return `<span class="tbadge${van}">${TYPE_LABEL[type] || type || '—'}</span>`
+  const label = TYPE_LABEL[type] || esc(type) || '—'
+  return `<span class="tbadge${van}">${label}</span>`
 }
 
 function popLive(s) {
@@ -197,7 +209,7 @@ function renderCard(s, opts = {}) {
   } else if (opts.loadingCurve) {
     curveSection = `
       <div class="dz-curve-head"><span class="curve-label">POP CURVE</span></div>
-      <div class="emptycurve" id="curve-${s.id}">
+      <div class="emptycurve" id="curve-${esc(s.id)}">
         <div class="ec-txt"><div class="ec-h">LOADING</div><div class="ec-p">fetching population history…</div></div>
       </div>`
   } else {
@@ -215,14 +227,14 @@ function renderCard(s, opts = {}) {
     ? `last wiped ${daysSince(s.last_wipe)}`
     : '—'
 
-  return `<article class="card dossier ${h.cls}" role="button" tabindex="0" data-open="${s.id}">
-    <div class="dz-stamp">${s.region || '—'}</div>
+  return `<article class="card dossier ${h.cls}" role="button" tabindex="0" data-open="${esc(s.id)}">
+    <div class="dz-stamp">${esc(s.region) || '—'}</div>
     <header class="dz-head">
       <div class="dz-file">FILE №${fileNo(s.name)}</div>
-      <h3 class="dz-name">${s.name}</h3>
+      <h3 class="dz-name">${esc(s.name)}</h3>
       <div class="dz-tags">
         ${typeBadge(s.type)}
-        <span class="meta-pill">${GROUP_LABEL[s.group_limit] || s.group_limit || '—'}</span>
+        <span class="meta-pill">${GROUP_LABEL[s.group_limit] || esc(s.group_limit) || '—'}</span>
         <span class="meta-pill">${wipeSummary}</span>
       </div>
     </header>
@@ -253,7 +265,7 @@ function filterSidebar(params) {
 
   function filterChips(values, field, labelMap) {
     return values.map(v =>
-      chip(labelMap[v] || v, f[field] === v, `data-filter="${field}" data-value="${v}"`)
+      chip(labelMap[v] || v, f[field] === v, `data-filter="${field}" data-value="${esc(v)}"`)
     ).join('')
   }
 
@@ -309,22 +321,14 @@ function filterSidebar(params) {
 }
 
 function renderResults(servers, params) {
-  const count = servers.length
-  const sort = params.get('sort') || 'retention'
   const cards = servers.map(s => renderCard(s, { loadingCurve: true })).join('')
-
   return `<div class="screen results">
     ${filterSidebar(params)}
     <main class="resmain">
       <div class="res-bar">
         <div class="res-count">
-          <span class="rc-num mono">${count}</span>
+          <span class="rc-num mono">${servers.length}</span>
           <span class="rc-lbl">servers mapped</span>
-        </div>
-        <div class="res-sort">
-          <span class="rs-lbl mono">SORT</span>
-          <button class="rs-opt${sort === 'retention' ? ' on' : ''}" data-sort="retention">Retention</button>
-          <button class="rs-opt${sort === 'pop' ? ' on' : ''}" data-sort="pop">Live pop</button>
         </div>
       </div>
       <div class="cardgrid grid-dossier" id="card-grid">
@@ -346,18 +350,19 @@ function renderDetail(s, backScreen) {
   let curvePanel
   if (curve?.values) {
     const svg = renderSparkline(curve.values, { id: s.id + '-d', w: 300, h: 84, strong })
-    const d3Ret = curve.retention != null ? fmtRet(curve.retention) : '—'
-    const d7Approx = curve.values[4] != null && curve.values[0] != null
-      ? fmtRet(curve.values[4] / curve.values[0]) : '—'
-    const d7RetClass = curve.values[4] != null && curve.values[0] != null
-      ? retClass(curve.values[4] / curve.values[0]) : ''
+    const d3Ret = fmtRet(curve.retention)
+    // Guard against day1 = 0 to avoid Infinity
+    const d7ratio = (curve.values[4] != null && curve.values[0] != null && curve.values[0] !== 0)
+      ? curve.values[4] / curve.values[0]
+      : null
+    const d7Ret = fmtRet(d7ratio)
     curvePanel = `
       <div class="ret-panel">
         ${svg}
         <div class="dz-axis"><span>D1</span><span>D2</span><span>D3</span><span>D5</span><span>D7</span></div>
         <div class="retrow ret-big">
           <div class="ret"><span class="rk">D3</span><span class="rv ${retClass(curve.retention)}">${d3Ret}</span></div>
-          <div class="ret"><span class="rk">D7</span><span class="rv ${d7RetClass}">${d7Approx}</span></div>
+          <div class="ret"><span class="rk">D7</span><span class="rv ${retClass(d7ratio)}">${d7Ret}</span></div>
         </div>
       </div>`
   } else {
@@ -365,15 +370,15 @@ function renderDetail(s, backScreen) {
   }
 
   return `<div class="screen detail">
-    <button class="dt-back" data-nav="${backScreen}">← BACK TO MAP</button>
+    <button class="dt-back" data-nav="${esc(backScreen)}">← BACK TO MAP</button>
 
     <header class="dt-head">
       <div class="dt-head-l">
-        <div class="dz-file">FILE №${fileNo(s.name)} · ${s.region || '—'}</div>
-        <h1 class="dt-name">${s.name}</h1>
+        <div class="dz-file">FILE №${fileNo(s.name)} · ${esc(s.region) || '—'}</div>
+        <h1 class="dt-name">${esc(s.name)}</h1>
         <div class="dt-tags">
           ${typeBadge(s.type)}
-          <span class="meta-pill">${GROUP_LABEL[s.group_limit] || s.group_limit || '—'}</span>
+          <span class="meta-pill">${GROUP_LABEL[s.group_limit] || esc(s.group_limit) || '—'}</span>
           <span class="meta-pill">${wipeSummary}</span>
         </div>
         <div class="dt-verdict">
@@ -403,10 +408,10 @@ function renderDetail(s, backScreen) {
         <div class="panel-head"><span class="panel-title">SERVER FACTS</span></div>
         <div class="panel-body">
           <dl class="facts">
-            <div><dt>Region</dt><dd>${s.region || '—'}</dd></div>
+            <div><dt>Region</dt><dd>${esc(s.region) || '—'}</dd></div>
             <div><dt>Wipe</dt><dd>${wipeSummary}</dd></div>
-            <div><dt>Group limit</dt><dd>${GROUP_LABEL[s.group_limit] || s.group_limit || '—'}</dd></div>
-            <div><dt>Type</dt><dd>${TYPE_LABEL[s.type] || s.type || '—'}</dd></div>
+            <div><dt>Group limit</dt><dd>${GROUP_LABEL[s.group_limit] || esc(s.group_limit) || '—'}</dd></div>
+            <div><dt>Type</dt><dd>${TYPE_LABEL[s.type] || esc(s.type) || '—'}</dd></div>
             <div><dt>Slots</dt><dd>${fmtPop(s.max_players)}</dd></div>
             <div><dt>Last wiped</dt><dd>${s.last_wipe ? daysSince(s.last_wipe) : '—'}</dd></div>
             ${s.next_wipe ? `<div><dt>Next wipe</dt><dd>${daysUntil(s.next_wipe)}</dd></div>` : ''}
@@ -421,15 +426,8 @@ function renderDetail(s, backScreen) {
 
 function renderLanding(featured) {
   const picks = featured
-    .filter(s => {
-      const c = normalizeCurve(s.curve)
-      return c?.health === 'healthy'
-    })
+    .filter(s => normalizeCurve(s.curve)?.health === 'healthy')
     .slice(0, 3)
-
-  const featuredCards = picks.length
-    ? picks.map(s => renderCard(s)).join('')
-    : '<div class="noresults">// loading top picks…</div>'
 
   return `<div class="screen landing">
     <section class="hero hero-split">
@@ -448,11 +446,11 @@ function renderLanding(featured) {
           <div class="sb-quick" style="padding:16px">
             <select class="sb-sel mono" id="land-region">
               <option value="">Any region</option>
-              ${REGIONS.map(r => `<option value="${r}">${r}</option>`).join('')}
+              ${REGIONS.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
             </select>
             <select class="sb-sel mono" id="land-type">
               <option value="">Any type</option>
-              ${TYPES.map(t => `<option value="${t}">${TYPE_LABEL[t]}</option>`).join('')}
+              ${TYPES.map(t => `<option value="${esc(t)}">${TYPE_LABEL[t] || esc(t)}</option>`).join('')}
             </select>
             <button class="btn-amber" data-land-go>SCAN SERVERS →</button>
           </div>
@@ -474,7 +472,7 @@ function renderLanding(featured) {
         <span class="feat-sub">held ≥70% pop to day 7</span>
         <span class="rule"></span>
       </div>
-      <div class="feat-grid">${featuredCards}</div>
+      <div class="feat-grid">${picks.map(s => renderCard(s)).join('')}</div>
     </div>` : ''}
 
     <section class="how">
@@ -490,7 +488,7 @@ function renderLanding(featured) {
 function renderMatchScreen(results, submitted, criteria) {
   function matchChip(label, field, value) {
     const active = criteria[field] === value
-    return chip(label, active, `data-match="${field}" data-value="${value}"`)
+    return chip(label, active, `data-match="${field}" data-value="${esc(value)}"`)
   }
 
   const hasResult = submitted && results !== null
@@ -559,9 +557,7 @@ function renderMatchScreen(results, submitted, criteria) {
                 <span class="mr-pct">${c?.retention != null ? Math.round(c.retention * 100) : '—'}</span>
                 <span class="mr-pctl">ret%</span>
               </div>
-              <div class="mr-right">
-                ${renderCard(s)}
-              </div>
+              <div class="mr-right">${renderCard(s)}</div>
             </div>`
           }).join('') : ''}
         </div>
@@ -574,7 +570,7 @@ function renderMatchScreen(results, submitted, criteria) {
 
 function renderPrivacy(backScreen) {
   return `<div class="screen privacy" style="max-width:700px">
-    <button class="dt-back" data-nav="${backScreen}">← BACK</button>
+    <button class="dt-back" data-nav="${esc(backScreen)}">← BACK</button>
     <h1 class="h-display" style="margin-top:32px">Privacy Policy</h1>
     <div class="lede" style="margin-top:24px;max-width:none">
       <p>ServerRat does not collect any personal data. There are no accounts, no login, no cookies beyond what your browser sets locally.</p>
@@ -587,10 +583,8 @@ function renderPrivacy(backScreen) {
 // ── App state ─────────────────────────────────────────────────────────────────
 
 const app = {
-  loading: false,
   servers: [],
   detailServer: null,
-  detailBackScreen: 'results',
   matchCriteria: {},
   matchResults: null,
   matchSubmitted: false,
@@ -604,7 +598,8 @@ async function injectCurves(servers) {
     try {
       const full = await fetchServer(s.id)
       const el = document.getElementById('curve-' + s.id)
-      if (!el || !full.curve) return
+      // Skip if element was removed by a navigation that happened while fetching
+      if (!el || !el.isConnected || !full.curve) return
       const curve = normalizeCurve(full.curve)
       const health = curve?.health || 'unknown'
       const strong = health === 'healthy' || health === 'fading'
@@ -620,25 +615,30 @@ async function injectCurves(servers) {
           <div class="dz-curve-head"><span class="curve-label">POP CURVE</span>${retHtml}</div>
           ${svg}
           <div class="dz-axis"><span>D1</span><span>D2</span><span>D3</span><span>D5</span><span>D7</span></div>`
-        // Update the card's health class
-        const card = el.closest('.card')
+        const card = el.closest?.('.card')
         if (card) {
           card.className = `card dossier ${healthInfo(health).cls}`
           const htag = card.querySelector('.htag')
-          if (htag) { htag.className = `htag ${healthInfo(health).cls}`; htag.textContent = healthInfo(health).label }
+          if (htag) {
+            htag.className = `htag ${healthInfo(health).cls}`
+            htag.textContent = healthInfo(health).label
+          }
         }
       } else {
         el.innerHTML = '<div class="ec-h">NO DATA YET</div>'
       }
     } catch {
-      // silently skip failed curve loads
+      // silently skip — curve is a progressive enhancement
     }
   }))
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
+// ── Main render (generation counter prevents stale writes) ────────────────────
+
+let _renderGen = 0
 
 async function render() {
+  const gen = ++_renderGen
   const { screen, params } = getRoute()
   const mount = document.getElementById('app')
 
@@ -648,66 +648,53 @@ async function render() {
       renderFooter()
     if (!app.servers.length) {
       try {
-        app.servers = await fetchServers()
-        mount.querySelector('.feat-grid, .screen.landing')?.replaceWith?.(
-          Object.assign(document.createElement('div'), { innerHTML: renderLanding(app.servers) })
-            .firstChild
-        )
-        // Re-render landing with fetched data
+        const fetched = await fetchServers()
+        if (gen !== _renderGen) return
+        app.servers = fetched
         mount.innerHTML = renderNav('landing') +
           '<div class="stage">' + renderLanding(app.servers) + '</div>' +
           renderFooter()
-        attachEvents()
-      } catch { /* ok, no featured picks */ }
+      } catch { /* no featured picks — ok */ }
     }
 
   } else if (screen === 'results') {
-    if (!app.servers.length) {
+    mount.innerHTML = renderNav('results') +
+      '<div class="stage"><div class="screen results"><div class="resmain"><div class="noresults">// loading servers…</div></div></div></div>' +
+      renderFooter()
+    try {
+      const fetched = await fetchServers(Object.fromEntries(params))
+      if (gen !== _renderGen) return
+      app.servers = fetched
+    } catch {
+      if (gen !== _renderGen) return
       mount.innerHTML = renderNav('results') +
-        '<div class="stage"><div class="screen results"><div class="noresults">// loading servers…</div></div></div>' +
+        '<div class="stage"><div class="screen results"><div class="resmain"><div class="noresults">// error loading servers. try again.</div></div></div></div>' +
         renderFooter()
-      attachEvents()
-      try {
-        app.servers = await fetchServers(Object.fromEntries(params))
-      } catch {
-        mount.innerHTML = renderNav('results') +
-          '<div class="stage"><div class="screen results"><div class="noresults">// error loading servers. try again.</div></div></div>' +
-          renderFooter()
-        attachEvents()
-        return
-      }
-    } else {
-      // Re-fetch when filters change
-      try {
-        app.servers = await fetchServers(Object.fromEntries(params))
-      } catch { /* keep existing */ }
+      return
     }
-
     mount.innerHTML = renderNav('results') +
       '<div class="stage">' + renderResults(app.servers, params) + '</div>' +
       renderFooter()
-    attachEvents()
     injectCurves(app.servers)
 
   } else if (screen === 'detail') {
     const id = params.get('id')
     const back = params.get('back') || 'results'
-    app.detailBackScreen = back
     mount.innerHTML = renderNav('detail') +
       '<div class="stage"><div class="screen detail"><div class="noresults">// loading dossier…</div></div></div>' +
       renderFooter()
-    attachEvents()
     try {
-      app.detailServer = await fetchServer(id)
+      const full = await fetchServer(id)
+      if (gen !== _renderGen) return
+      app.detailServer = full
       mount.innerHTML = renderNav('detail') +
         '<div class="stage">' + renderDetail(app.detailServer, back) + '</div>' +
         renderFooter()
-      attachEvents()
     } catch {
+      if (gen !== _renderGen) return
       mount.innerHTML = renderNav(back) +
         '<div class="stage"><div class="noresults">// server not found.</div></div>' +
         renderFooter()
-      attachEvents()
     }
 
   } else if (screen === 'match') {
@@ -716,14 +703,12 @@ async function render() {
       renderMatchScreen(app.matchResults, app.matchSubmitted, app.matchCriteria) +
       '</div>' +
       renderFooter()
-    attachEvents()
 
   } else if (screen === 'privacy') {
     const back = params.get('back') || 'landing'
     mount.innerHTML = renderNav('privacy') +
       '<div class="stage">' + renderPrivacy(back) + '</div>' +
       renderFooter()
-    attachEvents()
 
   } else {
     go('landing')
@@ -732,15 +717,11 @@ async function render() {
 
 // ── Event handling ────────────────────────────────────────────────────────────
 
-function attachEvents() {
-  // Delegated to document so it survives re-renders
-}
-
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-nav]')
-  if (t) {
+  const navEl = e.target.closest('[data-nav]')
+  if (navEl) {
     e.preventDefault()
-    const screen = t.dataset.nav
+    const screen = navEl.dataset.nav
     if (screen === 'privacy') {
       const { screen: cur } = getRoute()
       go('privacy', { back: cur })
@@ -750,7 +731,6 @@ document.addEventListener('click', async e => {
     return
   }
 
-  // Open server detail
   const card = e.target.closest('[data-open]')
   if (card) {
     const id = card.dataset.open
@@ -759,52 +739,33 @@ document.addEventListener('click', async e => {
     return
   }
 
-  // Filter chip toggle (results screen)
   const filterBtn = e.target.closest('[data-filter]')
   if (filterBtn) {
     const field = filterBtn.dataset.filter
     const value = filterBtn.dataset.value
+    if (field === 'alive') return  // handled by change event
     const { params } = getRoute()
-    if (field === 'alive') {
-      // handled by change event below
-      return
-    }
     if (params.get(field) === value) {
       params.delete(field)
     } else {
       params.set(field, value)
     }
-    app.servers = [] // force re-fetch with new filters
     go('results', Object.fromEntries(params))
     return
   }
 
-  // Sort toggle
-  const sortBtn = e.target.closest('[data-sort]')
-  if (sortBtn) {
-    const { params } = getRoute()
-    params.set('sort', sortBtn.dataset.sort)
-    go('results', Object.fromEntries(params))
-    return
-  }
-
-  // Clear filters
   if (e.target.closest('[data-reset]')) {
-    app.servers = []
     go('results')
     return
   }
 
-  // Landing quick-search
   if (e.target.closest('[data-land-go]')) {
     const region = document.getElementById('land-region')?.value || ''
     const type = document.getElementById('land-type')?.value || ''
-    app.servers = []
     go('results', { region, type })
     return
   }
 
-  // Match chip toggle
   const matchChip = e.target.closest('[data-match]')
   if (matchChip) {
     const field = matchChip.dataset.match
@@ -820,13 +781,13 @@ document.addEventListener('click', async e => {
     return
   }
 
-  // Match submit
   if (e.target.closest('[data-match-submit]')) {
     app.matchSubmitted = true
     app.matchResults = null
     render()
     try {
-      app.matchResults = await postMatch(app.matchCriteria)
+      const results = await postMatch(app.matchCriteria)
+      app.matchResults = results
     } catch {
       app.matchResults = []
     }
@@ -844,7 +805,6 @@ document.addEventListener('change', e => {
     } else {
       params.delete('alive')
     }
-    app.servers = []
     go('results', Object.fromEntries(params))
   }
 })

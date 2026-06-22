@@ -1,4 +1,4 @@
-const VALID_TYPE = new Set(['vanilla', '2x', '5x', '10x', 'modded', 'official', 'community'])
+const VALID_TYPE = new Set(['vanilla', '2x', '3x', '5x', '10x', 'modded', 'official', 'community'])
 const VALID_WIPE_DAY = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
 const VALID_WIPE_FREQ = new Set(['weekly', 'biweekly', 'monthly'])
 const VALID_GROUP = new Set(['solo', 'duo', 'trio', 'quad', 'any'])
