@@ -96,7 +96,7 @@ export function createServersRouter({ db, bm }) {
         }
       }
 
-      res.json({ ...server, curve, pop30, wipe_history })
+      res.json({ ...server, curve, pop30, wipe_history, history_available: hasBmId })
     } catch {
       res.status(502).json({ error: 'upstream error' })
     }

@@ -110,9 +110,13 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms) }
 }
 
-function renderPop30(pop30, maxPlayers) {
+function renderPop30(pop30, maxPlayers, historyAvailable = true) {
   const nonNull = (pop30 ?? []).filter(v => v !== null)
-  if (!nonNull.length) return '<div class="cc-nodata">no history yet — check back after a day</div>'
+  if (!nonNull.length) {
+    return historyAvailable
+      ? '<div class="cc-nodata">no history yet — check back after the next collector run</div>'
+      : '<div class="cc-nodata">population history not available — this server is not indexed by BattleMetrics</div>'
+  }
   const W = 660, H = 120, padL = 4, padR = 4, padT = 6, padB = 4
   const n = pop30.length
   const ceil = Math.max(maxPlayers || 1, ...nonNull)
@@ -447,7 +451,9 @@ function renderDetail(s, backScreen) {
         </div>
       </div>`
   } else {
-    curvePanel = '<div class="cc-nodata">NO DATA YET</div>'
+    curvePanel = s.history_available === false
+      ? '<div class="cc-nodata">not indexed by BattleMetrics — no curve available</div>'
+      : '<div class="cc-nodata">NO DATA YET — curve populates after the next collector run</div>'
   }
 
   const verdict = s.next_wipe
@@ -528,7 +534,7 @@ function renderDetail(s, backScreen) {
           <span class="panel-sub">avg concurrent players / day</span>
         </div>
         <div class="panel-body">
-          ${renderPop30(s.pop30, s.max_players)}
+          ${renderPop30(s.pop30, s.max_players, s.history_available)}
           ${statRow}
         </div>
       </section>
