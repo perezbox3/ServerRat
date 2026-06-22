@@ -17,29 +17,34 @@ const server2 = {
   next_wipe: null, ip: '5.6.7.8', queue: 0, map_seed: null, map_size: null, raw: '{}',
 }
 
+// makeBm now uses fetchPageCursor, which returns { servers, nextUrl }.
+// nextUrl=null on the last page signals the collector to stop.
 function makeBm(pages = [[server1], [server2]]) {
   let call = 0
   return {
-    fetchPage: vi.fn(async () => pages[call++] ?? []),
+    fetchPageCursor: vi.fn(async () => {
+      const servers = pages[call++] ?? []
+      return { servers, nextUrl: call < pages.length ? 'https://fake.next' : null }
+    }),
   }
 }
 
 describe('runCollection', () => {
   it('upserts all servers from BM pages', async () => {
     const db = makeDb()
-    // Two servers on page 0 (<100) → collector stops; both must be in DB
+    // Two servers on page 0 (<100) → nextUrl null → collector stops
     const bm = makeBm([[server1, server2]])
     await runCollection({ db, bm, sleepMs: 0 })
-    expect(bm.fetchPage).toHaveBeenCalledTimes(1)
+    expect(bm.fetchPageCursor).toHaveBeenCalledTimes(1)
     expect(db.getServer('bm-1')).not.toBeNull()
     expect(db.getServer('bm-2')).not.toBeNull()
   })
 
   it('stops pagination when a page returns fewer than 100 entries', async () => {
     const db = makeDb()
-    const bm = makeBm([[server1]])  // 1 server = < 100
+    const bm = makeBm([[server1]])  // 1 server = < 100 → stop
     await runCollection({ db, bm, sleepMs: 0 })
-    expect(bm.fetchPage).toHaveBeenCalledTimes(1)
+    expect(bm.fetchPageCursor).toHaveBeenCalledTimes(1)
   })
 
   it('touches servers-list cache after BM crawl', async () => {
@@ -53,8 +58,8 @@ describe('runCollection', () => {
     const db = makeDb()
     let call = 0
     const bm = {
-      fetchPage: vi.fn(async () => {
-        if (call++ === 0) return [server1]
+      fetchPageCursor: vi.fn(async () => {
+        if (call++ === 0) return { servers: [server1], nextUrl: 'https://fake.next' }
         throw new Error('BM 429')
       }),
     }
@@ -83,6 +88,25 @@ describe('runCollection', () => {
     const bm = makeBm([[server1]])
     const result = await runCollection({ db, bm, sleepMs: 0 })
     expect(result.steamProcessed).toBe(0)
+  })
+
+  it('passes cursor URL from previous page to next fetchPageCursor call', async () => {
+    const db = makeDb()
+    // Two full pages (100 each would be realistic, but 2+1 shows the cursor is passed)
+    const page0 = Array(100).fill(null).map((_, i) => ({ ...server1, id: `bm-p0-${i}`, steam_id: `s0${i}`, raw: '{}' }))
+    const page1 = [server2]
+    let calls = []
+    const bm = {
+      fetchPageCursor: vi.fn(async (cursorUrl) => {
+        calls.push(cursorUrl)
+        if (calls.length === 1) return { servers: page0, nextUrl: 'https://fake.cursor' }
+        return { servers: page1, nextUrl: null }
+      }),
+    }
+    await runCollection({ db, bm, sleepMs: 0 })
+    expect(calls[0]).toBeNull()
+    expect(calls[1]).toBe('https://fake.cursor')
+    expect(db.getServer('bm-2')).not.toBeNull()
   })
 
   it('returns collection stats', async () => {

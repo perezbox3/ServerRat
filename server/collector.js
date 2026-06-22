@@ -10,17 +10,19 @@ export async function runCollection({ db, bm, steam = null, sleepMs = 1000 } = {
   const started = Date.now()
   let bmPages = 0, bmUpserted = 0, steamProcessed = 0, steamEnriched = 0
 
-  // ── Phase 1: BM full crawl ─────────────────────────────────────────────────
+  // ── Phase 1: BM full crawl (cursor pagination) ────────────────────────────
   console.log('[collector] BM crawl starting...')
+  let nextUrl = null
   for (let page = 0; page < MAX_BM_PAGES; page++) {
     try {
-      const batch = await bm.fetchPage(page)
+      const { servers: batch, nextUrl: next } = await bm.fetchPageCursor(nextUrl)
       if (!batch.length) break
       for (const s of batch) db.upsertServer(s)
       bmUpserted += batch.length
       bmPages++
       process.stdout.write(`\r[collector] BM page ${page + 1}: ${bmUpserted} servers`)
-      if (batch.length < 100) break
+      nextUrl = next
+      if (!nextUrl || batch.length < 100) break
       if (page < MAX_BM_PAGES - 1) await sleep(sleepMs)
     } catch (e) {
       console.error(`\n[collector] BM page ${page} failed: ${e.message}`)

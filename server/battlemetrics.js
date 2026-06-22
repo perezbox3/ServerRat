@@ -132,7 +132,31 @@ export function createBmClient({
       return results
     },
 
-    // Single-page fetch used by the collector (which handles its own sleep + loop)
+    // Cursor-aware single-page fetch for the collector.
+    // Pass cursorUrl=null for the first page; pass the returned nextUrl for each
+    // subsequent page. BM uses page[key] cursors — numeric page[offset] returns 400.
+    async fetchPageCursor(cursorUrl = null, filters = {}) {
+      const url = cursorUrl
+        ? new URL(cursorUrl)
+        : (() => {
+            const u = new URL(`${baseUrl}/servers`)
+            u.searchParams.set('filter[game]', 'rust')
+            u.searchParams.set('filter[status]', 'online')
+            u.searchParams.set('page[size]', '100')
+            u.searchParams.set('fields[server]', 'name,players,maxPlayers,rank,status,country,ip,port,details')
+            if (filters.country) u.searchParams.set('filter[countries][]', filters.country)
+            return u
+          })()
+      const res = await fetchFn(url.toString(), { headers })
+      if (!res.ok) throw new Error(`BattleMetrics ${res.status}`)
+      const json = await res.json()
+      return {
+        servers: (json.data || []).map(mapServer),
+        nextUrl: json.links?.next ?? null,
+      }
+    },
+
+    // Legacy offset-based fetch — kept for tests; do not use in the collector.
     async fetchPage(page, filters = {}) {
       const url = new URL(`${baseUrl}/servers`)
       url.searchParams.set('filter[game]', 'rust')
