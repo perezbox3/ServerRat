@@ -44,16 +44,17 @@ export function createDb(path) {
   try { db.exec('ALTER TABLE servers ADD COLUMN map_seed INTEGER') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN map_size INTEGER') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN queue INTEGER DEFAULT 0') } catch {}
+  try { db.exec('ALTER TABLE servers ADD COLUMN description TEXT') } catch {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_steam_id ON servers(steam_id) WHERE steam_id IS NOT NULL') } catch {}
 
   return {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
                    current_players, max_players, last_wipe, next_wipe,
-                   ip, queue, map_seed, map_size, raw }) {
+                   ip, queue, map_seed, map_size, description, raw }) {
       db.prepare(`
         INSERT INTO servers (id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
-          current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, raw, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, description, raw, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           steam_id      = COALESCE(excluded.steam_id, steam_id),
           name          = excluded.name,
@@ -70,6 +71,7 @@ export function createDb(path) {
           queue         = excluded.queue,
           map_seed      = COALESCE(excluded.map_seed, map_seed),
           map_size      = COALESCE(excluded.map_size, map_size),
+          description   = COALESCE(excluded.description, description),
           raw           = excluded.raw,
           updated_at    = excluded.updated_at
       `).run(id, steam_id ?? null, name ?? null, region ?? null, type ?? null,
@@ -77,7 +79,7 @@ export function createDb(path) {
              current_players ?? null, max_players ?? null,
              last_wipe ?? null, next_wipe ?? null,
              ip ?? null, queue ?? 0, map_seed ?? null, map_size ?? null,
-             raw, new Date().toISOString())
+             description ?? null, raw, new Date().toISOString())
       return this.getServer(id)
     },
 

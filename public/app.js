@@ -285,6 +285,7 @@ function renderCard(s, opts = {}) {
     </header>
     <div class="dz-pop">
       ${popLive(s)}
+      ${s.queue > 0 ? `<span class="queue-pill">+${esc(String(s.queue))} queue</span>` : ''}
       ${healthTag(health)}
     </div>
     <div class="dz-curve">${curveSection}</div>
@@ -330,6 +331,7 @@ function filterSidebar(params) {
           <input class="sb-input" id="search-input" type="text" placeholder="server name…"
             value="${esc(f.search)}" style="font-size:16px" />
         </div>
+        <button class="sb-search-btn mono" data-search-go>SEARCH →</button>
       </div>
     </div>
 
@@ -495,10 +497,39 @@ function renderDetail(s, backScreen) {
             <div><dt>Slots</dt><dd>${fmtPop(s.max_players)}</dd></div>
             <div><dt>Last wiped</dt><dd>${s.last_wipe ? daysSince(s.last_wipe) : '—'}</dd></div>
             ${s.next_wipe ? `<div><dt>Next wipe</dt><dd>${daysUntil(s.next_wipe)}</dd></div>` : ''}
+            ${s.queue > 0 ? `<div><dt>Queue</dt><dd>${esc(String(s.queue))} waiting</dd></div>` : ''}
+            ${s.ip && s.game_port ? `<div class="facts-connect"><dt>Direct connect</dt><dd>
+              <a class="connect-link" href="steam://connect/${esc(s.ip)}:${esc(String(s.game_port))}">${esc(s.ip)}:${esc(String(s.game_port))}</a>
+              <button class="copy-btn" data-copy="${esc(s.ip)}:${esc(String(s.game_port))}">COPY</button>
+            </dd></div>` : ''}
           </dl>
         </div>
       </section>
     </div>
+
+    ${s.map_seed && s.map_size ? `
+    <section class="panel dt-map">
+      <div class="panel-head">
+        <span class="panel-title">MAP</span>
+        <span class="panel-sub">${esc(s.map_name) || 'Procedural'} · size ${esc(String(s.map_size))} · seed ${esc(String(s.map_seed))}</span>
+      </div>
+      <div class="panel-body map-body">
+        <div class="map-img-wrap">
+          <img class="map-img"
+            src="https://rustmaps.com/img/map/${s.map_size}_${s.map_seed}.jpg"
+            alt="Rust map preview"
+            onerror="this.classList.add('map-img-fail')"
+          />
+        </div>
+        <a class="btn-map-link" href="https://rustmaps.com/map/${s.map_size}/${s.map_seed}" target="_blank" rel="noopener">VIEW FULL MAP ON RUSTMAPS →</a>
+      </div>
+    </section>` : ''}
+
+    ${s.description ? `
+    <section class="panel dt-desc">
+      <div class="panel-head"><span class="panel-title">ABOUT</span></div>
+      <div class="panel-body desc-body">${esc(s.description).replace(/\n/g, '<br/>')}</div>
+    </section>` : ''}
 
     <section class="panel" style="margin-bottom:22px">
       <div class="panel-head">
@@ -850,6 +881,28 @@ document.addEventListener('click', async e => {
     return
   }
 
+  const copyBtn = e.target.closest('[data-copy]')
+  if (copyBtn) {
+    navigator.clipboard.writeText(copyBtn.dataset.copy).then(() => {
+      const orig = copyBtn.textContent
+      copyBtn.textContent = 'COPIED!'
+      setTimeout(() => { copyBtn.textContent = orig }, 1500)
+    })
+    return
+  }
+
+  const searchGoBtn = e.target.closest('[data-search-go]')
+  if (searchGoBtn) {
+    const searchEl = document.getElementById('search-input')
+    const { params } = getRoute()
+    const val = searchEl?.value.trim() || ''
+    if (val) params.set('search', val)
+    else params.delete('search')
+    params.delete('page')
+    go('results', Object.fromEntries(params))
+    return
+  }
+
   const pgBtn = e.target.closest('[data-pg]')
   if (pgBtn && !pgBtn.disabled) {
     const newPage = parseInt(pgBtn.dataset.pg, 10)
@@ -936,6 +989,17 @@ document.addEventListener('change', e => {
     } else {
       params.delete('alive')
     }
+    params.delete('page')
+    go('results', Object.fromEntries(params))
+  }
+})
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.closest('#search-input')) {
+    const { params } = getRoute()
+    const val = e.target.value.trim()
+    if (val) params.set('search', val)
+    else params.delete('search')
     params.delete('page')
     go('results', Object.fromEntries(params))
   }

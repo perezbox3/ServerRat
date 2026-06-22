@@ -64,6 +64,7 @@ function mapServer(raw) {
     queue: details.rust_queued_players ?? 0,
     map_seed: details.rust_world_seed ?? null,
     map_size: details.rust_world_size ?? null,
+    description: details.rust_description || null,
     raw: JSON.stringify(raw),
   }
 }
