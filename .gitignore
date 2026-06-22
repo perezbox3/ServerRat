@@ -4,3 +4,5 @@ node_modules/
 *.db-shm
 *.db-wal
 .DS_Store
+scratch-zip/
+Perezbox3.com.zip

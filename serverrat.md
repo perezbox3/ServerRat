@@ -561,3 +561,253 @@ git commit -m "feat(bm): BattleMetrics client + pure population-curve computatio
 - **After Task 1:** mandatory. The YES/NO verdict either confirms this plan or rewrites it.
 - **After Task 4:** mandatory (marked above). Re-cut Tasks 5–8 against real data shape; decide if "match my schedule" is MVP or parked.
 - Cap: no more than ~3 active tasks at once. Tasks 5–8 are provisional, not committed work.
+
+---
+---
+
+# FINALIZED RE-PLAN — Tasks 5-8 (post-Task-4, 2026-06-19)
+
+> **This section supersedes the four "(provisional)" tasks above.** Where they conflict, this wins. The provisional versions are kept above only as a record of the original sketch. Tasks 5-8 below are grounded in the **actual** code shipped in Tasks 1-4 (commits `ce8fef6` -> `d238b43`) and the real BattleMetrics data shape.
+
+## What the re-plan learned (the deltas that reshaped this)
+
+The engine (Tasks 1-4) is real and on disk. Reading it changed four things in the downstream plan:
+
+1. **`server/db.js` already filters in SQL.** `listServers({ region, type, wipe_day, wipe_freq, group_limit })` builds an AND-combined `WHERE` and returns rows sorted by `current_players DESC`. The original Task 5 assumed `filter.js` would own all filtering — it does **not**. Most exact-match filtering is done. `filter.js` shrinks to the two things SQL doesn't do cleanly: **null-aware "any" handling** and **match-by-schedule ranking**.
+2. **`server/curve.js` returns an OBJECT, the design wants an ARRAY.** Backend produces `{ day1, day2, day3, day5, day7, retention }` (rounded ints, `null` for empty buckets). The design ZIP's data shape is `curve: [n,n,n,n,n]` plus a derived `health` label and a human `note`. The **API layer owns this translation** (object -> ordered array + a `health` band derived from `retention`). Named explicitly in Task 6 so it doesn't get improvised in the frontend.
+3. **`getServerHistory(id, { start, stop })` needs a time window** — it is not parameterless. Routes must compute `{ start, stop }` from the server's `last_wipe` (start = `last_wipe`, stop = now, clamped to ~8 days). That computation is a Task 6 concern with its own edge case (null `last_wipe`).
+4. **The design ZIP is React + in-browser Babel** (`Perezbox3.com.zip` -> `serverrat-export/`: `sr-app.jsx`, `sr-results.jsx`, `sr-detail.jsx`, `sr-match.jsx`, `sr-landing.jsx`, `sr-privacy.jsx`, `sr-components.jsx`, `tweaks-panel.jsx`, `image-slot.js`, `sr-data.js` mock data, `serverrat.css`, `index.html`, and two PNGs `sr-mascot.png` / `sr-head.png`). It loads React/ReactDOM/Babel from unpkg and transpiles in the browser. **That violates the "vanilla JS, no build step, no framework" rule in CLAUDE.md.** Task 7 is therefore a **port**, not a drop-in: lift `serverrat.css` and the two PNGs **as-is**, port the JSX components to vanilla DOM JS, and replace `sr-data.js` mock data with `fetch()` calls to our real API. This is the biggest task — see Task 7's split.
+
+**"Match my schedule" verdict: IN for MVP, but reduced.** Task 4 confirmed history is real but **sparse** (one server had 9 points over 8 days; curve days can be null). A scoring model that ranks by "population during your exact play hours" needs dense hourly history we don't reliably have. So match-my-schedule ships as a **filter + retention-rank**, not an hours-of-day heatmap: it filters to the user's `wipe_day`/`wipe_freq`/`type`/`group_limit`/`region` and ranks survivors by `retention` (day3/day1) then `current_players`. The hours-of-day heatmap is **PARKED** (added to the list below). This keeps the headline feature honest against the data we actually have.
+
+## Order and why
+
+`5 -> 6 -> 7 -> 8`, unchanged from the sketch, because the dependency chain is real:
+
+- **Task 5 (filter + match logic)** is pure functions with no I/O — cheapest to test, and Task 6's routes import it. It goes first so the routes have something correct to call. It is also the **riskiest remaining assumption** (see below), so it leads for the same reason Task 1 led the whole project: test the bet cheaply before building on it.
+- **Task 6 (routes)** wires db + bm + filter + curve into HTTP. It can't be meaningfully built until 5 exists and is trusted.
+- **Task 7 (frontend)** consumes the routes. Building it before 6 means coding against an imagined API; building it after means real `fetch` calls against a running server.
+- **Task 8 (deploy)** is last by definition — you deploy what's built. It needs the real `public/` and routes to proxy.
+
+## Riskiest remaining assumption
+
+**That the sparse, often-null curve data still produces a *useful* ranking** — i.e. that enough servers have a non-null `retention` for "rank by who holds population" to return a meaningful, non-empty list. If most servers come back with `retention: null` (because day1 or day3 bucket is empty), the headline sort collapses and the product shows an unranked blob.
+
+**Task 5 tests this cheaply, before any route or UI:** its match/sort function must define and unit-test the **null-retention tie-break** (servers with `null` retention sort *below* any server with a real retention, ordered among themselves by `current_players`). The first standup after Task 5 should also eyeball a live `listRustServers` + a few `getServerHistory` calls to count how many of ~100 servers yield a non-null retention. If it's a tiny fraction, that's a PLAN-IS-WRONG signal — re-plan the ranking (e.g. fall back to current_players, surface retention only when present) before building Task 6 on top of it.
+
+---
+
+## TASK 5 — Filter refinement + match ranking (`server/filter.js`)
+
+**Scope (what is IN):** The pure-function layer the routes call. Specifically:
+- `filterServers(servers, criteria)` — takes already-fetched server objects (the route may pass DB rows or live-mapped objects) and applies criteria that **SQL can't express cleanly**: treat `group_limit: 'any'` and `null` schedule fields as wildcards that should still match a user who didn't filter on them, and let a server with `wipe_day: null` be **excluded** when the user *does* specify a wipe day (you can't promise a schedule you don't know). AND-combine. Omitted criteria match everything.
+- `scoreMatch(server, curve)` -> a sortable numeric/typed key, **null-safe**: a server with a real `retention` always ranks above one with `retention: null`; ties and null-retention servers fall back to `current_players DESC`.
+- `rankServers(serversWithCurves, criteria)` — filter then sort by the match key. Deterministic.
+
+**Out (explicitly NOT in Task 5):** hours-of-day scoring, any DB or HTTP access, any fetching. Pure in, pure out.
+
+**Files:**
+- Create: `server/filter.js` (named exports: `filterServers`, `scoreMatch`, `rankServers` — named exports only, per CLAUDE.md)
+- Create: `tests/filter.test.js`
+
+**First step (literal):** In `tests/filter.test.js`, write the red test with **three fixture servers** — one Thursday/trio/2x with `retention 0.9`, one with `wipe_day: null`, one Friday/5x with `retention: null` — and assert that `rankServers(fixtures, { wipe_day: 'Thursday' })` returns **exactly the Thursday server** (the null-wipe-day one is excluded because a wipe day was requested), and that across a no-criteria call the real-retention server sorts above the null-retention one. Run it red (`npm test -- tests/filter.test.js` -> "Cannot find module").
+
+**Definition of done (checkable by a third party):**
+- `npm test -- tests/filter.test.js` is green, and the suite explicitly covers: (a) AND-combination of two criteria returning exactly one of three fixtures; (b) omitted criteria act as wildcards; (c) `group_limit: 'any'` server matches a user asking for `trio`; (d) a `wipe_day: null` server is **excluded** when the user specifies a wipe day, but **included** when they don't; (e) the **null-retention tie-break** — real retention ranks above null, null-retention servers ordered by `current_players`.
+- Every export is pure: no `import` of `db`, `battlemetrics`, or `fetch` anywhere in `server/filter.js` (grep it to confirm).
+- No `console.log`, no dead code.
+
+**Gate:** `code-reviewer`. (No outbound / no input-boundary -> security-reviewer not required for this task.)
+
+**Estimate (you guess, we check at standup):** ___
+
+---
+
+## TASK 6 — API routes (`server/routes/servers.js`, `server/routes/match.js`)
+
+**Scope (what is IN):**
+- `GET /api/servers` — read query params (`region, type, wipe_day, wipe_freq, group_limit`), serve from `db.listServers(...)`. If `db.isStale('servers-list', CACHE_TTL_SECONDS)` (or the table is empty), call `bm.listRustServers()`, `upsertServer` each, `touchCache('servers-list')`, then serve from DB. Returns server cards **without** per-server curves (curves are lazy — confirmed by Task 4: one HTTP call per server, can't preload 100).
+- `GET /api/servers/:id` — return the one server **plus its curve**. Lazy-load history: if snapshots are stale/absent, compute `{ start, stop }` from the server's `last_wipe` (start = `last_wipe`; stop = now; if `last_wipe` is null, fall back to now-minus-8-days), call `bm.getServerHistory(id, { start, stop })`, `addSnapshot` each, `touchCache('history:'+id)`, then `computePopulationCurve(getSnapshots(id), last_wipe)`. **Translate the curve object -> the design's array shape** here: `[day1,day2,day3,day5,day7]` plus a `health` band derived from `retention` (e.g. `>=0.7` healthy, `>=0.4` fading, else dying — exact bands are a one-line decision the reviewer can check) and pass through `retention`.
+- `POST /api/match` — body `{ wipe_day, wipe_freq, type, group_limit, region }`. Filter cached servers via `filterServers`, rank via `rankServers`. Because curves are expensive, match ranks on **stored retention where available** (compute/refresh curves only for the filtered subset, capped — e.g. top N by current_players — not all 100). Returns ranked cards.
+- Wire both routers into `server/app.js` (it currently only has `/api/health`).
+
+**Out:** any new caching primitive (use `isStale`/`touchCache` as-is), pagination, the hours-of-day match.
+
+**Risks / edge cases the developer MUST handle:**
+- **Curve object vs array mismatch** — the single most likely bug. The route is the only place the translation happens; assert it in a test.
+- **Null `last_wipe`** -> history window fallback; a curve that comes back all-null must serialize as `null`s, not crash the card.
+- **Input validation at the boundary** (CLAUDE.md security rule): whitelist query/body param values against the known enums (`type`, `wipe_day`, `wipe_freq`, `group_limit`, `region` code shape). Reject/ignore unknown keys; never pass raw user strings into the BM client URL.
+- **Cache short-circuit**: a test must prove `bm.listRustServers` is called **once** then served from DB on the second request (assert call count on the injected fake).
+- **BM error propagation**: a non-ok BM response throws (Task 4 behavior) — the route must catch and return a clean 502/503, never a stack trace to the client.
+
+**Files:**
+- Create: `server/routes/servers.js`, `server/routes/match.js`
+- Edit: `server/app.js` (mount the routers)
+- Create: `tests/routes/servers.test.js` (supertest against `createApp({ db, bm })` with `:memory:` db + fake bm)
+
+**First step (literal):** Write the `GET /api/servers` happy-path supertest: seed a `:memory:` db (via the real `createDb`) with two servers, pass a fake `bm`, `createApp({ db, bm })`, and assert `GET /api/servers?type=2x` returns 200 with exactly the matching card and that the fake `bm.listRustServers` was **not** called when the cache is fresh. Run it red.
+
+**Definition of done:**
+- `npm test -- tests/routes/servers.test.js` green; tests **never** hit the live API (injected `bm`), per CLAUDE.md.
+- Covered: happy-path filtered list; `:id` returns server + curve **as an array** + `health` + `retention`; `POST /api/match` returns servers in ranked order (real-retention first, null-retention last); stale-cache test proves one fetch then cache; input-validation test proves a junk `type` value doesn't reach the BM client; a BM-error test proves the route returns a clean 5xx, not a crash.
+- `server/app.js` mounts both routers; `/api/health` still works.
+
+**Gate:** `code-reviewer` **AND** `security-reviewer` (input handling on query + body params, and outbound BM requests — both triggers per CLAUDE.md).
+
+**Estimate:** ___
+
+---
+
+## TASK 7 — Frontend: port the design to vanilla JS (`public/`)
+
+> **This is a port, not a drop-in.** The ZIP (`Perezbox3.com.zip` -> `serverrat-export/`) is React + in-browser Babel, which violates the "vanilla JS, no framework, no build step" rule. Lift the **CSS and image assets as-is**; rewrite the **JSX components as vanilla DOM**; replace **`sr-data.js` mock data** with `fetch()` against the Task 6 routes. It is the largest task — if it can't be done in one sitting, split at the marked seam and re-plan (do not let it sprawl).
+
+**Scope (what is IN):**
+- Extract from the ZIP into `public/`: `serverrat.css` (as-is), `assets/sr-mascot.png` + `assets/sr-head.png` (as-is, used as favicon + landing mascot).
+- `public/index.html` — own hand-written head (fonts the design uses: Archivo / Press Start 2P / VT323), links `serverrat.css`, a `#root`, and `<script type="module" src="app.js">`. **No React, no Babel, no unpkg.**
+- `public/app.js` — vanilla render + fetch. Views to port from the JSX: **results grid** (server cards: name, current/max pop, wipe schedule, group/type/region, **sparkline**, retention %, direct-connect button), **server detail** (full curve + `health` + `note`), **match panel** (the reduced filter+rank), and the **landing/hero** with the mascot. Filters are URL params (no login, stateless — per CLAUDE.md). Privacy view can be a static page port.
+- `public/sparkline.js` — `renderSparkline(curveArray)` -> inline `<svg>` string. **Pure, unit-testable.** Handles `null` days (gap in the line, not a crash).
+
+**Out:** any framework, any bundler, the in-browser Babel pipeline, the ZIP's `image-slot.js`/`tweaks-panel.jsx` tooling (those are design-export scaffolding, not product).
+
+**Risks / edge cases:**
+- **Curve array may contain `null`s** (sparse data) — the sparkline must render a clean gap, and cards must show "-" not "NaN" for null days / null retention.
+- **`health`/`note` come from the API now**, not mock data — the card must degrade gracefully if `health` is "unknown" (null retention).
+- **Direct-connect link**: the design implies a `steam://connect/IP:PORT` button — confirm IP:PORT is actually in the BM `raw`/mapped data; if not, this button is PARKED, not faked.
+- **Asset paths** — the ZIP references `assets/...` relative; keep that structure under `public/`.
+
+**Files:**
+- Create: `public/index.html`, `public/serverrat.css` (match the ZIP name), `public/app.js`, `public/sparkline.js`, `public/assets/sr-mascot.png`, `public/assets/sr-head.png`
+- Create: `tests/sparkline.test.js`
+
+**Split seam (if one sitting isn't enough):** Stop after **static page + results grid + sparkline render against live local routes** (a real, demoable slice), commit, and re-plan the detail/match/landing polish as Task 7b. A working results grid is observable value; the rest is enrichment.
+
+**First step (literal):** Unzip `Perezbox3.com.zip` to a scratch dir, copy `serverrat.css` and the two PNGs into `public/` (+`public/assets/`), and write a minimal `public/index.html` with the fonts, the stylesheet link, a `#root`, and an empty results `<section>` — confirm Express `static` serves it and it loads in the browser with the design's look (dark, mascot). No data yet.
+
+**Definition of done:**
+- `npm test -- tests/sparkline.test.js` green: `renderSparkline` returns an `<svg>` with the expected point count and renders a **gap** for a null day without throwing.
+- Page loads against the **running local server** (`node server/index.js`) and renders **real cards from `/api/servers`** with **real sparklines** from `/api/servers/:id`; filters change results via URL params without a full reload; null curve days / null retention show "-", never NaN/crash.
+- Zero React/Babel/unpkg references in shipped `public/`. No build step (loads directly).
+- Manual smoke documented in README: how to start the server and what to click.
+
+**Gate:** `code-reviewer`.
+
+**Estimate:** ___
+
+---
+
+## TASK 8 — nginx vhost + deploy runbook (`deploy/nginx.conf`)
+
+> **Correction from the provisional sketch:** the provisional Task 8 said **Apache**. CLAUDE.md and the environment are **nginx** (`sudo certbot --nginx`, "nginx reverse-proxies to Node on 3003", `deploy/nginx.conf`). This task is **nginx**. The Apache wording above is dead — ignore it.
+
+**Scope (what is IN):** Produce `deploy/nginx.conf` (full vhost, below) and an accurate README deploy runbook. **This task does NOT push, deploy, or restart anything** — Anthony runs it in his own persistent SSH session with explicit go-ahead (CLAUDE.md + global workflow).
+
+**Risks / edge cases:**
+- **Confirm port 3003 is free** on the personal server before going live (3001 = relay; gamepickle shares the box). The runbook must include the check.
+- Certbot will rewrite the vhost to add the 443 server block + redirect — the committed file is the **pre-certbot** HTTP vhost plus the proxy; note that in a comment so the post-certbot diff isn't a surprise.
+- Security headers are required (CLAUDE.md): `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`.
+- No WebSocket block — ServerRat has no sockets.
+
+**Files:**
+- Create: `deploy/nginx.conf` (full content below)
+- Edit: `README` (or `CLAUDE.md` deploy notes) — runbook
+
+**Full `deploy/nginx.conf` content:**
+
+```nginx
+# deploy/nginx.conf — ServerRat reverse proxy.
+# Pre-certbot HTTP vhost. Run `sudo certbot --nginx -d serverrat.perezbox3.com`
+# after this is in place; certbot adds the 443 server block + HTTP->HTTPS redirect.
+# Node app runs under PM2 on 127.0.0.1:3003 (confirm 3003 is free before deploy — 3001 is relay).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name serverrat.perezbox3.com;
+
+    # Security headers (required by CLAUDE.md).
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    access_log /var/log/nginx/serverrat.access.log;
+    error_log  /var/log/nginx/serverrat.error.log;
+
+    # Cache static assets (CSS, JS, the mascot PNGs) hard; the app is stateless.
+    location ~* \.(?:css|js|png|svg|ico|woff2?)$ {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 30s;
+    }
+}
+```
+
+**Deploy runbook (goes in README — Anthony runs it in his open SSH session, no new connections):**
+
+```bash
+# 0. Confirm 3003 is free on the personal server (3001 = relay).
+sudo ss -ltnp | grep ':3003' || echo "3003 is free"
+
+# 1. Place the vhost and enable it.
+sudo cp /var/www/serverrat.perezbox3.com/deploy/nginx.conf /etc/nginx/sites-available/serverrat.perezbox3.com
+sudo ln -sf /etc/nginx/sites-available/serverrat.perezbox3.com /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# 2. Deploy the app.
+cd /var/www/serverrat.perezbox3.com
+git pull
+npm install --production
+cp -n .env.example .env   # then edit .env (PORT=3003, CACHE_TTL_SECONDS, optional BM token)
+pm2 start ecosystem.config.cjs && pm2 save   # first time; later: pm2 restart serverrat
+
+# 3. SSL (one-time). Certbot rewrites the vhost to add 443 + redirect.
+sudo certbot --nginx -d serverrat.perezbox3.com
+
+# 4. Verify.
+curl -s https://serverrat.perezbox3.com/api/health   # expect {"ok":true}
+```
+
+**First step (literal):** Create `deploy/nginx.conf` with the content above; structural-parity check it by eye against the existing relay/gamepickle vhost on the box (servername + port swapped, no WebSocket block). Local `nginx -t` is N/A on the Windows dev machine — validation happens on the server in step 1 of the runbook.
+
+**Definition of done:**
+- `deploy/nginx.conf` committed with the full vhost above; security headers present; proxies to `127.0.0.1:3003`; no WebSocket block.
+- README runbook is accurate and runnable by Anthony in his existing SSH session; it includes the **3003-free check** and the certbot step.
+- **Port 3003 confirmed free** on the personal server before go-live (stated as a gate, executed by Anthony — not by this agent).
+- This task produced **only** config + docs. No deploy, no PM2 restart, no push was performed by the agent.
+
+**Gate:** `code-reviewer` **AND** `security-reviewer` (reverse proxy + headers).
+
+**Estimate:** ___
+
+---
+
+## Out of scope (Tasks 5-8) — unchanged from the master list, plus:
+- Hours-of-day "play window" match scoring (needs dense hourly history we don't reliably have — see PARKED).
+- Server-owner / direct-connect IP features beyond what BM already returns in `raw`.
+- Any build step, bundler, or framework on the frontend (the design ZIP's React pipeline is deliberately dropped).
+
+## PARKED (review at next re-plan, not mid-task)
+- **Hours-of-day match heatmap** — rank by average population during the user's exact play hours. Parked because Task 4 confirmed history is too sparse (9 points / 8 days on the sampled server) to support it honestly. Reconsider if we ever build our own continuous history collector.
+- **`steam://connect/IP:PORT` direct-connect button** — only if IP:PORT is reliably present in the mapped BM data; verify in Task 7, park if not.
+- **Favorites in localStorage** (no-login-friendly, low cost — first to reconsider).
+- **Side-by-side curve overlay** comparing 2-3 servers.
+
+## Re-plan triggers (forward)
+- **After Task 5:** quick standup checkpoint — count how many of ~100 live servers yield a non-null `retention`. If it's a tiny fraction, the ranking assumption failed -> re-plan the sort before Task 6.
+- **After Task 7 (or at the split seam):** if Task 7 split into 7a/7b, re-plan 7b scope from what the results-grid slice actually proved.
+- **Cap:** Task 5 is the only fully-active task now; 6-8 are scoped but not in flight. One task at a time.
