@@ -26,11 +26,12 @@ const SOLO_SERVER = {
 }
 
 describe('mapSteamServer', () => {
-  it('maps steamid, name, ip, game_port, players', () => {
+  it('maps steamid, name, ip, query_port, game_port, players', () => {
     const s = mapSteamServer(FAKE_SERVER)
     expect(s.steam_id).toBe('90286857894963224')
     expect(s.name).toBe('Rusty Moose |US Biweekly|')
     expect(s.ip).toBe('64.40.9.156')
+    expect(s.query_port).toBe(28017)
     expect(s.game_port).toBe(28015)
     expect(s.current_players).toBe(723)
     expect(s.max_players).toBe(500)
@@ -102,6 +103,26 @@ describe('mapSteamServer', () => {
     expect(s.last_wipe).toBeNull()
     expect(s.queue).toBe(0)
     expect(s.group_limit).toBe('any')
+  })
+
+  it('extracts query_port from addr string', () => {
+    const s = mapSteamServer({ ...FAKE_SERVER, addr: '10.0.0.1:28017' })
+    expect(s.ip).toBe('10.0.0.1')
+    expect(s.query_port).toBe(28017)
+  })
+
+  it('returns null query_port when addr is absent', () => {
+    const s = mapSteamServer({ ...FAKE_SERVER, addr: undefined })
+    expect(s.query_port).toBeNull()
+  })
+
+  it('parses wipe_freq from gametype tags when present', () => {
+    const s = mapSteamServer({
+      ...FAKE_SERVER,
+      steamid: '55555',
+      gametype: 'mp200,cp50,ptrak,qp0,v2627,born1780000000,gmrust,ts0,weekly',
+    })
+    expect(s.wipe_freq).toBe('weekly')
   })
 })
 

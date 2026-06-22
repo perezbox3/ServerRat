@@ -2,8 +2,6 @@ import { Router } from 'express'
 import { computePopulationCurve, computeDailyAverages } from '../curve.js'
 import { sanitize } from './validate.js'
 
-const HISTORY_TTL = 3600
-
 function toHealth(retention) {
   if (retention == null) return 'unknown'
   if (retention >= 0.7) return 'healthy'
@@ -11,9 +9,8 @@ function toHealth(retention) {
   return 'dying'
 }
 
-export function createServersRouter({ db, bm }) {
+export function createServersRouter({ db }) {
   const router = Router()
-  const listTtl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300', 10)
 
   // List is populated by the background collector — this route is a pure DB read.
   router.get('/', (req, res) => {
@@ -29,26 +26,10 @@ export function createServersRouter({ db, bm }) {
     }
   })
 
-  router.get('/:id', async (req, res) => {
+  router.get('/:id', (req, res) => {
     try {
       const server = db.getServer(req.params.id)
       if (!server) return res.status(404).json({ error: 'not found' })
-
-      // Steam-only servers have no BM record — their history must come from
-      // snapshots we collect ourselves; skip the BM history call for them.
-      const hasBmId = !server.id.startsWith('steam_')
-      const cacheKey = 'history:' + server.id
-      if (hasBmId && db.isStale(cacheKey, HISTORY_TTL)) {
-        try {
-          const stop = new Date().toISOString()
-          const start = new Date(Date.now() - 30 * 86400000).toISOString()
-          const history = await bm.getServerHistory(server.id, { start, stop })
-          for (const pt of history) db.addSnapshot({ server_id: server.id, ...pt })
-          db.touchCache(cacheKey)
-        } catch (e) {
-          console.error(`[servers] BM history failed for ${server.id}:`, e.message)
-        }
-      }
 
       const snapshots = db.getSnapshots(server.id)
 
@@ -96,7 +77,7 @@ export function createServersRouter({ db, bm }) {
         }
       }
 
-      res.json({ ...server, curve, pop30, wipe_history, history_available: hasBmId })
+      res.json({ ...server, curve, pop30, wipe_history })
     } catch {
       res.status(502).json({ error: 'upstream error' })
     }

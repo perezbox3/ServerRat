@@ -12,17 +12,25 @@ function decodeGametype(gametype = '') {
   const gm = get('gm')
   const ts = get('ts')
   const qp = get('qp')
+  // wipe_freq is sometimes encoded as a bare token in the gametype
+  const wipe_freq = parts.includes('monthly') ? 'monthly'
+                  : parts.includes('biweekly') ? 'biweekly'
+                  : parts.includes('weekly') ? 'weekly'
+                  : null
   return {
     last_wipe: born ? new Date(parseInt(born, 10) * 1000).toISOString() : null,
     game_mode: gm ?? null,
     team_size: ts !== null ? parseInt(ts, 10) : null,
     queue: qp !== null ? parseInt(qp, 10) : 0,
+    wipe_freq,
   }
 }
 
 function deriveType(game_mode) {
+  if (!game_mode) return null
   if (game_mode === 'vanilla') return 'vanilla'
-  return null  // 2x/5x/etc. needs BM's gather-rate data
+  if (/^\d+x$/i.test(game_mode)) return game_mode.toLowerCase()
+  return null
 }
 
 function deriveGroupLimit(team_size) {
@@ -35,12 +43,11 @@ function deriveGroupLimit(team_size) {
 }
 
 export function mapSteamServer(raw) {
-  const { last_wipe, game_mode, team_size, queue } = decodeGametype(raw.gametype)
+  const { last_wipe, game_mode, team_size, queue, wipe_freq: gametypeWipeFreq } = decodeGametype(raw.gametype)
   const ip = raw.addr ? raw.addr.split(':')[0] : null
+  const query_port = raw.addr ? parseInt(raw.addr.split(':')[1], 10) : null
   const parsed = parseTitle(raw.name)
 
-  // Steam's gametype is authoritative for vanilla (gm field); for multiplier rates
-  // we rely on BM's gather data, but title parsing covers the gap.
   const type = deriveType(game_mode) ?? parsed.type
 
   // Steam's ts field is authoritative when it's a real limit (> 0).
@@ -52,6 +59,7 @@ export function mapSteamServer(raw) {
     steam_id: raw.steamid ?? null,
     name: raw.name ?? null,
     ip,
+    query_port,
     game_port: raw.gameport ?? null,
     current_players: raw.players ?? null,
     max_players: raw.max_players ?? null,
@@ -60,7 +68,7 @@ export function mapSteamServer(raw) {
     type,
     group_limit,
     wipe_day: parsed.wipe_day,
-    wipe_freq: parsed.wipe_freq,
+    wipe_freq: gametypeWipeFreq ?? parsed.wipe_freq,
     queue,
   }
 }

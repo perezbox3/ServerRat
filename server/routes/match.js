@@ -3,7 +3,7 @@ import { computePopulationCurve } from '../curve.js'
 import { rankServers } from '../filter.js'
 import { sanitize } from './validate.js'
 
-export function createMatchRouter({ db, bm }) {
+export function createMatchRouter({ db }) {
   const router = Router()
 
   router.post('/', (req, res) => {

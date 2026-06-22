@@ -110,12 +110,10 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms) }
 }
 
-function renderPop30(pop30, maxPlayers, historyAvailable = true) {
+function renderPop30(pop30, maxPlayers) {
   const nonNull = (pop30 ?? []).filter(v => v !== null)
   if (!nonNull.length) {
-    return historyAvailable
-      ? '<div class="cc-nodata">no history yet — check back after the next collector run</div>'
-      : '<div class="cc-nodata">population history not available — this server is not indexed by BattleMetrics</div>'
+    return '<div class="cc-nodata">no history yet — check back after the next collector run</div>'
   }
   const W = 660, H = 120, padL = 4, padR = 4, padT = 6, padB = 4
   const n = pop30.length
@@ -451,9 +449,7 @@ function renderDetail(s, backScreen) {
         </div>
       </div>`
   } else {
-    curvePanel = s.history_available === false
-      ? '<div class="cc-nodata">not indexed by BattleMetrics — no curve available</div>'
-      : '<div class="cc-nodata">NO DATA YET — curve populates after the next collector run</div>'
+    curvePanel = '<div class="cc-nodata">NO DATA YET — curve populates after the next collector run</div>'
   }
 
   const verdict = s.next_wipe
@@ -534,7 +530,7 @@ function renderDetail(s, backScreen) {
           <span class="panel-sub">avg concurrent players / day</span>
         </div>
         <div class="panel-body">
-          ${renderPop30(s.pop30, s.max_players, s.history_available)}
+          ${renderPop30(s.pop30, s.max_players)}
           ${statRow}
         </div>
       </section>
@@ -742,7 +738,7 @@ function renderPrivacy(backScreen) {
     <h1 class="h-display" style="margin-top:32px">Privacy Policy</h1>
     <div class="lede" style="margin-top:24px;max-width:none">
       <p>ServerRat does not collect any personal data. There are no accounts, no login, no cookies beyond what your browser sets locally.</p>
-      <p>Rust server data is sourced from the <a href="https://www.battlemetrics.com" target="_blank" rel="noopener" style="color:var(--accent)">BattleMetrics</a> public API. No player tracking is performed.</p>
+      <p>Rust server data is collected directly from game servers via Steam and A2S protocol queries. No player tracking is performed.</p>
       <p>This is a free tool built by perezbox3. Use it to find better Rust servers.</p>
     </div>
   </div>`

@@ -1,17 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../../server/app.js'
 import { createDb } from '../../server/db.js'
 
 function makeDb() { return createDb(':memory:') }
-
-function makeBm(overrides = {}) {
-  return {
-    listRustServers: vi.fn(async () => []),
-    getServerHistory: vi.fn(async () => []),
-    ...overrides,
-  }
-}
 
 const WIPE = '2026-06-15T00:00:00Z'
 function wipeOffset(days) {
@@ -34,27 +26,24 @@ const srv2 = {
 describe('GET /api/servers', () => {
   it('returns paginated envelope with servers, total, page, limit', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm })).get('/api/servers')
+    const res = await request(createApp({ db })).get('/api/servers')
 
     expect(res.status).toBe(200)
     expect(res.body.servers).toHaveLength(2)
     expect(res.body.total).toBe(2)
     expect(res.body.page).toBe(1)
     expect(res.body.limit).toBe(25)
-    expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
   it('returns filtered servers from DB', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm })).get('/api/servers?type=2x')
+    const res = await request(createApp({ db })).get('/api/servers?type=2x')
 
     expect(res.status).toBe(200)
     expect(res.body.servers).toHaveLength(1)
@@ -64,11 +53,10 @@ describe('GET /api/servers', () => {
 
   it('paginates — page 2 returns second batch', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm })).get('/api/servers?limit=1&page=2')
+    const res = await request(createApp({ db })).get('/api/servers?limit=1&page=2')
 
     expect(res.status).toBe(200)
     expect(res.body.servers).toHaveLength(1)
@@ -78,57 +66,47 @@ describe('GET /api/servers', () => {
 
   it('returns all servers when no filter applied', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm })).get('/api/servers')
+    const res = await request(createApp({ db })).get('/api/servers')
 
     expect(res.status).toBe(200)
     expect(res.body.servers).toHaveLength(2)
-    expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
   it('filters by server name substring when search param is provided', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1) // 'Duo Land'
     db.upsertServer(srv2) // 'Vanilla Land'
 
-    const res = await request(createApp({ db, bm })).get('/api/servers?search=vanilla')
+    const res = await request(createApp({ db })).get('/api/servers?search=vanilla')
 
     expect(res.status).toBe(200)
     expect(res.body.servers).toHaveLength(1)
     expect(res.body.servers[0].id).toBe('srv-2')
-    expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
   it('drops invalid type param — treats it as no filter', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm })).get('/api/servers?type=DROP+TABLE')
+    const res = await request(createApp({ db })).get('/api/servers?type=DROP+TABLE')
 
     expect(res.status).toBe(200)
-    expect(bm.listRustServers).not.toHaveBeenCalled()
     expect(res.body.servers).toHaveLength(2)
   })
 })
 
 describe('GET /api/servers/:id', () => {
-  it('returns server + curve array + health band', async () => {
+  it('returns server + curve + health band from pre-seeded snapshots', async () => {
     const db = makeDb()
-    const bm = makeBm({
-      getServerHistory: vi.fn(async () => [
-        { recorded_at: wipeOffset(0.5), players: 300 },
-        { recorded_at: wipeOffset(2.5), players: 270 },
-      ]),
-    })
     db.upsertServer(srv1)
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(0.5), players: 300 })
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(2.5), players: 270 })
 
-    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
+    const res = await request(createApp({ db })).get('/api/servers/srv-1')
 
     expect(res.status).toBe(200)
     expect(res.body.id).toBe('srv-1')
@@ -142,43 +120,26 @@ describe('GET /api/servers/:id', () => {
 
   it('returns curve: null when server has no last_wipe', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer({ ...srv1, id: 'srv-3', last_wipe: null })
 
-    const res = await request(createApp({ db, bm })).get('/api/servers/srv-3')
+    const res = await request(createApp({ db })).get('/api/servers/srv-3')
 
     expect(res.status).toBe(200)
     expect(res.body.curve).toBeNull()
   })
 
   it('returns 404 for unknown id', async () => {
-    const res = await request(createApp({ db: makeDb(), bm: makeBm() }))
+    const res = await request(createApp({ db: makeDb() }))
       .get('/api/servers/does-not-exist')
     expect(res.status).toBe(404)
   })
 
-  it('returns server with null curve when BM history call fails', async () => {
-    const db = makeDb()
-    const bm = makeBm({ getServerHistory: vi.fn(async () => { throw new Error('timeout') }) })
-    db.upsertServer(srv1)
-
-    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
-
-    expect(res.status).toBe(200)
-    expect(res.body.id).toBe('srv-1')
-    expect(res.body.curve).not.toBeUndefined()
-  })
-
   it('returns pop30 array of 30 entries', async () => {
     const db = makeDb()
-    const bm = makeBm({
-      getServerHistory: vi.fn(async () => [
-        { recorded_at: wipeOffset(0.5), players: 300 },
-      ]),
-    })
     db.upsertServer(srv1)
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(0.5), players: 300 })
 
-    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
+    const res = await request(createApp({ db })).get('/api/servers/srv-1')
 
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body.pop30)).toBe(true)
@@ -187,15 +148,11 @@ describe('GET /api/servers/:id', () => {
 
   it('returns wipe_history array', async () => {
     const db = makeDb()
-    const bm = makeBm({
-      getServerHistory: vi.fn(async () => [
-        { recorded_at: wipeOffset(0.5), players: 300 },
-        { recorded_at: wipeOffset(2.5), players: 200 },
-      ]),
-    })
     db.upsertServer(srv1)
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(0.5), players: 300 })
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(2.5), players: 200 })
 
-    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
+    const res = await request(createApp({ db })).get('/api/servers/srv-1')
 
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body.wipe_history)).toBe(true)
@@ -203,15 +160,11 @@ describe('GET /api/servers/:id', () => {
 
   it('stores retention in DB after computing curve', async () => {
     const db = makeDb()
-    const bm = makeBm({
-      getServerHistory: vi.fn(async () => [
-        { recorded_at: wipeOffset(0.5), players: 300 },
-        { recorded_at: wipeOffset(2.5), players: 270 },
-      ]),
-    })
     db.upsertServer(srv1)
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(0.5), players: 300 })
+    db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(2.5), players: 270 })
 
-    await request(createApp({ db, bm })).get('/api/servers/srv-1')
+    await request(createApp({ db })).get('/api/servers/srv-1')
 
     expect(db.getServer('srv-1').retention).toBeCloseTo(0.9)
   })
@@ -220,13 +173,12 @@ describe('GET /api/servers/:id', () => {
 describe('POST /api/match', () => {
   it('ranks servers — real retention above null-retention', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
     db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(0.5), players: 300 })
     db.addSnapshot({ server_id: 'srv-1', recorded_at: wipeOffset(2.5), players: 270 })
 
-    const res = await request(createApp({ db, bm })).post('/api/match').send({})
+    const res = await request(createApp({ db })).post('/api/match').send({})
 
     expect(res.status).toBe(200)
     expect(res.body[0].id).toBe('srv-1')
@@ -235,11 +187,10 @@ describe('POST /api/match', () => {
 
   it('filters by criteria before ranking', async () => {
     const db = makeDb()
-    const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
 
-    const res = await request(createApp({ db, bm }))
+    const res = await request(createApp({ db }))
       .post('/api/match')
       .send({ type: '2x' })
 
