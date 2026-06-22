@@ -105,6 +105,51 @@ function retClass(r) {
   return r >= 0.7 ? 'ok' : r >= 0.4 ? 'mid' : 'bad'
 }
 
+function debounce(fn, ms) {
+  let t
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms) }
+}
+
+function renderPop30(pop30, maxPlayers) {
+  const nonNull = (pop30 ?? []).filter(v => v !== null)
+  if (!nonNull.length) return '<div class="cc-nodata">no history yet — check back after a day</div>'
+  const W = 660, H = 120, padL = 4, padR = 4, padT = 6, padB = 4
+  const n = pop30.length
+  const ceil = Math.max(maxPlayers || 1, ...nonNull)
+  const bw = (W - padL - padR) / n
+  const barY = v => padT + (1 - v / ceil) * (H - padT - padB)
+  const barCol = v => {
+    if (v == null) return 'var(--edge)'
+    const rt = v / ceil
+    return rt >= 0.55 ? 'var(--pop)' : rt >= 0.28 ? 'var(--accent)' : 'var(--rust)'
+  }
+  const bars = pop30.map((v, i) => {
+    const by = v != null ? barY(v) : H - padB - 2
+    const bh = v != null ? Math.max(1, H - padB - barY(v)) : 2
+    return `<rect x="${(padL + i * bw + 1).toFixed(1)}" y="${by.toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${bh.toFixed(1)}" fill="${barCol(v)}" />`
+  }).join('')
+  return `<svg class="c30-svg" viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" shape-rendering="crispEdges">${bars}</svg>
+    <div class="c30-x"><span>30d ago</span><span>20d</span><span>10d</span><span>today</span></div>`
+}
+
+function renderWipeHistory(wipeHistory) {
+  if (!wipeHistory?.length) return '<div class="cc-nodata">no previous wipes in the history window yet</div>'
+  return `<div class="wipe-list">${wipeHistory.map(w => {
+    const ret = w.retention !== null ? Math.round(w.retention * 100) : null
+    const retCls = ret == null ? '' : ret >= 70 ? 'ok' : ret >= 40 ? 'mid' : 'bad'
+    const fillPct = ret !== null ? Math.min(100, ret) : 0
+    const dateStr = w.wipe_date
+      ? new Date(w.wipe_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : '—'
+    return `<div class="wipe-row" style="grid-template-columns:100px 120px 1fr 120px">
+      <span class="wr-date">${esc(dateStr)}</span>
+      <span class="wr-peak data">${w.peak != null ? esc(String(w.peak)) + ' peak' : '—'}</span>
+      <span class="wr-bar"><span class="wr-fill" style="width:${fillPct}%"></span></span>
+      <span class="wr-held data ${retCls}">${ret !== null ? ret + '% ret' : '—'}</span>
+    </div>`
+  }).join('')}</div>`
+}
+
 function daysSince(iso) {
   if (!iso) return null
   const d = (Date.now() - new Date(iso).getTime()) / 86400000
@@ -260,6 +305,7 @@ function filterSidebar(params) {
     wipe_freq: params.get('wipe_freq') || '',
     group_limit: params.get('group_limit') || '',
     region: params.get('region') || '',
+    search: params.get('search') || '',
     alive: params.get('alive') === '1',
   }
 
@@ -274,6 +320,17 @@ function filterSidebar(params) {
       <div class="sf-stamp mono">FIELD FORM 7-B</div>
       <div class="sf-title">FILTER THE MAP</div>
       <div class="sf-rule"></div>
+    </div>
+
+    <div class="fgroup">
+      <div class="fg-label mono">SEARCH</div>
+      <div class="fg-body">
+        <div class="sb-field" style="border:none;padding:6px 0 0">
+          <span class="sb-prompt mono" style="font-size:16px">&gt;</span>
+          <input class="sb-input" id="search-input" type="text" placeholder="server name…"
+            value="${esc(f.search)}" style="font-size:16px" />
+        </div>
+      </div>
     </div>
 
     <div class="fgroup">
@@ -321,6 +378,7 @@ function filterSidebar(params) {
 }
 
 function renderResults(servers, params) {
+  const sort = params.get('sort') || 'pop'
   const cards = servers.map(s => renderCard(s, { loadingCurve: true })).join('')
   return `<div class="screen results">
     ${filterSidebar(params)}
@@ -329,6 +387,11 @@ function renderResults(servers, params) {
         <div class="res-count">
           <span class="rc-num mono">${servers.length}</span>
           <span class="rc-lbl">servers mapped</span>
+        </div>
+        <div class="res-sort">
+          <span class="rs-lbl mono">SORT</span>
+          <button class="rs-opt${sort === 'pop' ? ' on' : ''}" data-sort="pop">Live Pop</button>
+          <button class="rs-opt${sort === 'retention' ? ' on' : ''}" data-sort="retention">Retention</button>
         </div>
       </div>
       <div class="cardgrid grid-dossier" id="card-grid">
@@ -419,15 +482,31 @@ function renderDetail(s, backScreen) {
         </div>
       </section>
     </div>
+
+    <section class="panel" style="margin-bottom:22px">
+      <div class="panel-head">
+        <span class="panel-title">POPULATION · LAST 30 DAYS</span>
+        <span class="panel-sub">avg concurrent players / day</span>
+      </div>
+      <div class="panel-body">${renderPop30(s.pop30, s.max_players)}</div>
+    </section>
+
+    <section class="panel dt-wipes">
+      <div class="panel-head">
+        <span class="panel-title">WIPE HISTORY</span>
+        <span class="panel-sub">up to last 4 wipes</span>
+      </div>
+      <div class="panel-body">${renderWipeHistory(s.wipe_history)}</div>
+    </section>
   </div>`
 }
 
 // ── Landing screen ────────────────────────────────────────────────────────────
 
 function renderLanding(featured) {
-  const picks = featured
-    .filter(s => normalizeCurve(s.curve)?.health === 'healthy')
-    .slice(0, 3)
+  const healthyPicks = featured.filter(s => normalizeCurve(s.curve)?.health === 'healthy').slice(0, 3)
+  // Fallback to most-active servers if retention data isn't loaded yet
+  const picks = healthyPicks.length > 0 ? healthyPicks : featured.slice(0, 3)
 
   return `<div class="screen landing">
     <section class="hero hero-split">
@@ -443,7 +522,11 @@ function renderLanding(featured) {
           </p>
         </div>
         <div class="searchbar" style="margin-top:32px">
-          <div class="sb-quick" style="padding:16px">
+          <div class="sb-field">
+            <span class="sb-prompt mono">&gt;</span>
+            <input class="sb-input" id="land-search" type="text" placeholder="server name, tag, or vibe…" />
+          </div>
+          <div class="sb-quick" style="padding:14px 16px">
             <select class="sb-sel mono" id="land-region">
               <option value="">Any region</option>
               ${REGIONS.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}
@@ -592,8 +675,9 @@ const app = {
 
 // ── Lazy curve loader ─────────────────────────────────────────────────────────
 
-async function injectCurves(servers) {
-  const todo = servers.filter(s => !s.curve).slice(0, 10)
+async function injectCurves(servers, { aliveOnly = false } = {}) {
+  const limit = aliveOnly ? 25 : 10
+  const todo = servers.filter(s => !s.curve).slice(0, limit)
   await Promise.all(todo.map(async s => {
     try {
       const full = await fetchServer(s.id)
@@ -631,6 +715,14 @@ async function injectCurves(servers) {
       // silently skip — curve is a progressive enhancement
     }
   }))
+
+  // After all curves loaded: hide confirmed-dead servers if alive filter is on
+  if (aliveOnly) {
+    document.querySelectorAll('#card-grid .card.h-dead').forEach(el => el.remove())
+    const remaining = document.querySelectorAll('#card-grid .card').length
+    const countEl = document.querySelector('.rc-num')
+    if (countEl) countEl.textContent = remaining
+  }
 }
 
 // ── Main render (generation counter prevents stale writes) ────────────────────
@@ -675,7 +767,7 @@ async function render() {
     mount.innerHTML = renderNav('results') +
       '<div class="stage">' + renderResults(app.servers, params) + '</div>' +
       renderFooter()
-    injectCurves(app.servers)
+    injectCurves(app.servers, { aliveOnly: params.get('alive') === '1' })
 
   } else if (screen === 'detail') {
     const id = params.get('id')
@@ -759,10 +851,19 @@ document.addEventListener('click', async e => {
     return
   }
 
+  const sortBtn = e.target.closest('[data-sort]')
+  if (sortBtn) {
+    const { params } = getRoute()
+    params.set('sort', sortBtn.dataset.sort)
+    go('results', Object.fromEntries(params))
+    return
+  }
+
   if (e.target.closest('[data-land-go]')) {
+    const search = document.getElementById('land-search')?.value.trim() || ''
     const region = document.getElementById('land-region')?.value || ''
     const type = document.getElementById('land-type')?.value || ''
-    go('results', { region, type })
+    go('results', { search, region, type })
     return
   }
 
@@ -808,6 +909,17 @@ document.addEventListener('change', e => {
     go('results', Object.fromEntries(params))
   }
 })
+
+document.addEventListener('input', debounce(e => {
+  const searchEl = e.target.closest('#search-input')
+  if (searchEl) {
+    const { params } = getRoute()
+    const val = searchEl.value.trim()
+    if (val) params.set('search', val)
+    else params.delete('search')
+    go('results', Object.fromEntries(params))
+  }
+}, 400))
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
