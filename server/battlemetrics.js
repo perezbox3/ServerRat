@@ -84,7 +84,11 @@ export function createBmClient({
         if (filters.search) url.searchParams.set('filter[search]', filters.search)
 
         const res = await fetchFn(url.toString(), { headers })
-        if (!res.ok) throw new Error(`BattleMetrics ${res.status}`)
+        if (!res.ok) {
+          if (page === 0) throw new Error(`BattleMetrics ${res.status}`)
+          console.warn(`[bm] page ${page} returned ${res.status} — returning ${results.length} partial results`)
+          break
+        }
         const json = await res.json()
         const batch = (json.data || []).map(mapServer)
         results.push(...batch)

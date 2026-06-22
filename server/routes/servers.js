@@ -18,14 +18,19 @@ export function createServersRouter({ db, bm }) {
   router.get('/', async (req, res) => {
     try {
       const filters = sanitize(req.query)
-      // Only refresh from BM when not searching — search queries against the local cache
       if (!filters.search && db.isStale('servers-list', listTtl)) {
-        const servers = await bm.listRustServers()
-        for (const s of servers) db.upsertServer(s)
-        db.touchCache('servers-list')
+        try {
+          const servers = await bm.listRustServers()
+          for (const s of servers) db.upsertServer(s)
+          db.touchCache('servers-list')
+        } catch (e) {
+          console.error('[servers] BM list refresh failed:', e.message)
+          // Serve stale cache — a BM blip never takes down the list
+        }
       }
       res.json(db.listServers(filters))
-    } catch {
+    } catch (e) {
+      console.error('[servers] list error:', e.message)
       res.status(502).json({ error: 'upstream error' })
     }
   })
@@ -37,12 +42,16 @@ export function createServersRouter({ db, bm }) {
 
       const cacheKey = 'history:' + server.id
       if (db.isStale(cacheKey, HISTORY_TTL)) {
-        // Fetch 30 days so we can build a 30-day chart and multi-wipe history
-        const stop = new Date().toISOString()
-        const start = new Date(Date.now() - 30 * 86400000).toISOString()
-        const history = await bm.getServerHistory(server.id, { start, stop })
-        for (const pt of history) db.addSnapshot({ server_id: server.id, ...pt })
-        db.touchCache(cacheKey)
+        try {
+          const stop = new Date().toISOString()
+          const start = new Date(Date.now() - 30 * 86400000).toISOString()
+          const history = await bm.getServerHistory(server.id, { start, stop })
+          for (const pt of history) db.addSnapshot({ server_id: server.id, ...pt })
+          db.touchCache(cacheKey)
+        } catch (e) {
+          console.error(`[servers] BM history failed for ${server.id}:`, e.message)
+          // Fall through — compute curve from whatever snapshots are in the DB
+        }
       }
 
       const snapshots = db.getSnapshots(server.id)

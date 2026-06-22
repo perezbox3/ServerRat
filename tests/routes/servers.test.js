@@ -69,14 +69,16 @@ describe('GET /api/servers', () => {
     expect(bm.listRustServers).toHaveBeenCalledOnce()
   })
 
-  it('returns 502 when BM is unavailable', async () => {
+  it('serves stale cache when BM is unavailable', async () => {
     const db = makeDb()
+    db.upsertServer(srv1)
     const bm = makeBm({ listRustServers: vi.fn(async () => { throw new Error('BM down') }) })
 
     const res = await request(createApp({ db, bm })).get('/api/servers')
 
-    expect(res.status).toBe(502)
-    expect(res.body.error).toBeDefined()
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].id).toBe('srv-1')
   })
 
   it('filters by server name substring when search param is provided', async () => {
@@ -150,14 +152,16 @@ describe('GET /api/servers/:id', () => {
     expect(res.status).toBe(404)
   })
 
-  it('returns 502 when BM history call fails', async () => {
+  it('returns server with null curve when BM history call fails', async () => {
     const db = makeDb()
     const bm = makeBm({ getServerHistory: vi.fn(async () => { throw new Error('timeout') }) })
     db.upsertServer(srv1)
 
     const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
 
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(200)
+    expect(res.body.id).toBe('srv-1')
+    expect(res.body.curve).not.toBeUndefined()
   })
 
   it('returns pop30 array of 30 entries', async () => {
