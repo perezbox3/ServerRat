@@ -131,7 +131,7 @@ export function createDb(path) {
       return db.prepare('SELECT * FROM servers WHERE id = ?').get(id)
     },
 
-    listServers({ region, type, wipe_day, wipe_freq, group_limit, search, sort } = {}) {
+    _buildWhere({ region, type, wipe_day, wipe_freq, group_limit, search } = {}) {
       const conditions = []
       const params = []
       if (region)      { conditions.push('region = ?');      params.push(region) }
@@ -140,11 +140,23 @@ export function createDb(path) {
       if (wipe_freq)   { conditions.push('wipe_freq = ?');   params.push(wipe_freq) }
       if (group_limit) { conditions.push('group_limit = ?'); params.push(group_limit) }
       if (search)      { conditions.push('name LIKE ?');     params.push(`%${search}%`) }
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+      return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params }
+    },
+
+    countServers(filters = {}) {
+      const { where, params } = this._buildWhere(filters)
+      return db.prepare(`SELECT COUNT(*) as n FROM servers ${where}`).get(...params).n
+    },
+
+    listServers({ region, type, wipe_day, wipe_freq, group_limit, search, sort, page = 1, limit = 25 } = {}) {
+      const { where, params } = this._buildWhere({ region, type, wipe_day, wipe_freq, group_limit, search })
       const order = sort === 'retention'
         ? 'ORDER BY retention DESC NULLS LAST'
+        : sort === 'health'
+        ? 'ORDER BY CASE WHEN retention >= 0.7 THEN 3 WHEN retention >= 0.4 THEN 2 WHEN retention IS NOT NULL THEN 1 ELSE 0 END DESC, current_players DESC'
         : 'ORDER BY current_players DESC'
-      return db.prepare(`SELECT * FROM servers ${where} ${order}`).all(...params)
+      const offset = (page - 1) * limit
+      return db.prepare(`SELECT * FROM servers ${where} ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset)
     },
 
     addSnapshot({ server_id, recorded_at, players }) {

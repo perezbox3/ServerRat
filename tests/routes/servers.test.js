@@ -32,6 +32,22 @@ const srv2 = {
 }
 
 describe('GET /api/servers', () => {
+  it('returns paginated envelope with servers, total, page, limit', async () => {
+    const db = makeDb()
+    const bm = makeBm()
+    db.upsertServer(srv1)
+    db.upsertServer(srv2)
+
+    const res = await request(createApp({ db, bm })).get('/api/servers')
+
+    expect(res.status).toBe(200)
+    expect(res.body.servers).toHaveLength(2)
+    expect(res.body.total).toBe(2)
+    expect(res.body.page).toBe(1)
+    expect(res.body.limit).toBe(25)
+    expect(bm.listRustServers).not.toHaveBeenCalled()
+  })
+
   it('returns filtered servers from DB', async () => {
     const db = makeDb()
     const bm = makeBm()
@@ -41,10 +57,23 @@ describe('GET /api/servers', () => {
     const res = await request(createApp({ db, bm })).get('/api/servers?type=2x')
 
     expect(res.status).toBe(200)
-    expect(res.body).toHaveLength(1)
-    expect(res.body[0].id).toBe('srv-1')
-    // List route never calls BM — collector handles that
-    expect(bm.listRustServers).not.toHaveBeenCalled()
+    expect(res.body.servers).toHaveLength(1)
+    expect(res.body.servers[0].id).toBe('srv-1')
+    expect(res.body.total).toBe(1)
+  })
+
+  it('paginates — page 2 returns second batch', async () => {
+    const db = makeDb()
+    const bm = makeBm()
+    db.upsertServer(srv1)
+    db.upsertServer(srv2)
+
+    const res = await request(createApp({ db, bm })).get('/api/servers?limit=1&page=2')
+
+    expect(res.status).toBe(200)
+    expect(res.body.servers).toHaveLength(1)
+    expect(res.body.total).toBe(2)
+    expect(res.body.page).toBe(2)
   })
 
   it('returns all servers when no filter applied', async () => {
@@ -56,7 +85,7 @@ describe('GET /api/servers', () => {
     const res = await request(createApp({ db, bm })).get('/api/servers')
 
     expect(res.status).toBe(200)
-    expect(res.body).toHaveLength(2)
+    expect(res.body.servers).toHaveLength(2)
     expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
@@ -65,13 +94,12 @@ describe('GET /api/servers', () => {
     const bm = makeBm()
     db.upsertServer(srv1) // 'Duo Land'
     db.upsertServer(srv2) // 'Vanilla Land'
-    db.touchCache('servers-list')
 
     const res = await request(createApp({ db, bm })).get('/api/servers?search=vanilla')
 
     expect(res.status).toBe(200)
-    expect(res.body).toHaveLength(1)
-    expect(res.body[0].id).toBe('srv-2')
+    expect(res.body.servers).toHaveLength(1)
+    expect(res.body.servers[0].id).toBe('srv-2')
     expect(bm.listRustServers).not.toHaveBeenCalled()
   })
 
@@ -80,14 +108,12 @@ describe('GET /api/servers', () => {
     const bm = makeBm()
     db.upsertServer(srv1)
     db.upsertServer(srv2)
-    db.touchCache('servers-list')
 
     const res = await request(createApp({ db, bm })).get('/api/servers?type=DROP+TABLE')
 
     expect(res.status).toBe(200)
     expect(bm.listRustServers).not.toHaveBeenCalled()
-    // invalid type dropped → no type filter → all 2 servers returned
-    expect(res.body).toHaveLength(2)
+    expect(res.body.servers).toHaveLength(2)
   })
 })
 

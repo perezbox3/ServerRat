@@ -15,12 +15,14 @@ export function createServersRouter({ db, bm }) {
   const router = Router()
   const listTtl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300', 10)
 
-  // List is now populated entirely by the background collector (scripts/collect.js).
-  // This route is a pure DB read — no BM calls, always fast.
+  // List is populated by the background collector — this route is a pure DB read.
   router.get('/', (req, res) => {
     try {
       const filters = sanitize(req.query)
-      res.json(db.listServers(filters))
+      const { page, limit } = filters
+      const servers = db.listServers(filters)
+      const total = db.countServers(filters)
+      res.json({ servers, total, page, limit })
     } catch (e) {
       console.error('[servers] list error:', e.message)
       res.status(502).json({ error: 'upstream error' })

@@ -280,6 +280,12 @@
   .cardgrid.grid-pin{grid-template-columns:repeat(auto-fill,minmax(390px,1fr))}
   .noresults{font-family:var(--data);font-size:18px;color:var(--dim);padding:40px 0}
 
+  .pagination{display:flex;align-items:center;justify-content:center;gap:18px;padding:24px 0 8px;border-top:var(--bd);margin-top:18px}
+  .pg-btn{font-family:var(--pix);font-size:9px;color:var(--ink);padding:8px 16px;border:var(--bd-2);background:var(--bg-2);letter-spacing:0.08em;transition:all .1s}
+  .pg-btn:hover:not(:disabled){background:var(--accent);color:#160f02}
+  .pg-btn:disabled{opacity:.3;cursor:default}
+  .pg-info{font-family:var(--pix);font-size:8px;color:var(--dim);letter-spacing:0.06em}
+
   /* ================= MATCH ================= */
   .screen.match{padding-bottom:30px}
   .match-head{max-width:700px;margin-bottom:34px}

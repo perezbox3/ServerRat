@@ -377,7 +377,22 @@ function filterSidebar(params) {
   </aside>`
 }
 
-function renderResults(servers, params) {
+function renderPagination(pagination, params) {
+  const { total, page, limit } = pagination
+  const totalPages = Math.ceil(total / limit) || 1
+  if (total === 0) return ''
+  const prevParams = new URLSearchParams(params)
+  prevParams.set('page', page - 1)
+  const nextParams = new URLSearchParams(params)
+  nextParams.set('page', page + 1)
+  return `<div class="pagination">
+    <button class="pg-btn" data-pg="${page - 1}" ${page <= 1 ? 'disabled' : ''}>← PREV</button>
+    <span class="pg-info mono">PAGE ${page} / ${totalPages} · ${total.toLocaleString()} SERVERS</span>
+    <button class="pg-btn" data-pg="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>NEXT →</button>
+  </div>`
+}
+
+function renderResults(servers, params, pagination) {
   const sort = params.get('sort') || 'pop'
   const cards = servers.map(s => renderCard(s, { loadingCurve: true })).join('')
   return `<div class="screen results">
@@ -385,18 +400,20 @@ function renderResults(servers, params) {
     <main class="resmain">
       <div class="res-bar">
         <div class="res-count">
-          <span class="rc-num mono">${servers.length}</span>
+          <span class="rc-num mono">${(pagination?.total ?? servers.length).toLocaleString()}</span>
           <span class="rc-lbl">servers mapped</span>
         </div>
         <div class="res-sort">
           <span class="rs-lbl mono">SORT</span>
           <button class="rs-opt${sort === 'pop' ? ' on' : ''}" data-sort="pop">Live Pop</button>
           <button class="rs-opt${sort === 'retention' ? ' on' : ''}" data-sort="retention">Retention</button>
+          <button class="rs-opt${sort === 'health' ? ' on' : ''}" data-sort="health">Health</button>
         </div>
       </div>
       <div class="cardgrid grid-dossier" id="card-grid">
         ${cards || '<div class="noresults">// no servers match the form. clear a filter.</div>'}
       </div>
+      ${pagination ? renderPagination(pagination, params) : ''}
     </main>
   </div>`
 }
@@ -667,6 +684,7 @@ function renderPrivacy(backScreen) {
 
 const app = {
   servers: [],
+  pagination: { total: 0, page: 1, limit: 25 },
   detailServer: null,
   matchCriteria: {},
   matchResults: null,
@@ -740,9 +758,9 @@ async function render() {
       renderFooter()
     if (!app.servers.length) {
       try {
-        const fetched = await fetchServers()
+        const fetched = await fetchServers({ limit: 25 })
         if (gen !== _renderGen) return
-        app.servers = fetched
+        app.servers = fetched.servers ?? fetched
         mount.innerHTML = renderNav('landing') +
           '<div class="stage">' + renderLanding(app.servers) + '</div>' +
           renderFooter()
@@ -756,7 +774,8 @@ async function render() {
     try {
       const fetched = await fetchServers(Object.fromEntries(params))
       if (gen !== _renderGen) return
-      app.servers = fetched
+      app.servers = fetched.servers ?? fetched
+      app.pagination = { total: fetched.total ?? app.servers.length, page: fetched.page ?? 1, limit: fetched.limit ?? 25 }
     } catch {
       if (gen !== _renderGen) return
       mount.innerHTML = renderNav('results') +
@@ -765,7 +784,7 @@ async function render() {
       return
     }
     mount.innerHTML = renderNav('results') +
-      '<div class="stage">' + renderResults(app.servers, params) + '</div>' +
+      '<div class="stage">' + renderResults(app.servers, params, app.pagination) + '</div>' +
       renderFooter()
     injectCurves(app.servers, { aliveOnly: params.get('alive') === '1' })
 
@@ -831,6 +850,15 @@ document.addEventListener('click', async e => {
     return
   }
 
+  const pgBtn = e.target.closest('[data-pg]')
+  if (pgBtn && !pgBtn.disabled) {
+    const newPage = parseInt(pgBtn.dataset.pg, 10)
+    const { params } = getRoute()
+    params.set('page', newPage)
+    go('results', Object.fromEntries(params))
+    return
+  }
+
   const filterBtn = e.target.closest('[data-filter]')
   if (filterBtn) {
     const field = filterBtn.dataset.filter
@@ -842,6 +870,7 @@ document.addEventListener('click', async e => {
     } else {
       params.set(field, value)
     }
+    params.delete('page')
     go('results', Object.fromEntries(params))
     return
   }
@@ -855,6 +884,7 @@ document.addEventListener('click', async e => {
   if (sortBtn) {
     const { params } = getRoute()
     params.set('sort', sortBtn.dataset.sort)
+    params.delete('page')
     go('results', Object.fromEntries(params))
     return
   }
@@ -906,6 +936,7 @@ document.addEventListener('change', e => {
     } else {
       params.delete('alive')
     }
+    params.delete('page')
     go('results', Object.fromEntries(params))
   }
 })
@@ -917,6 +948,7 @@ document.addEventListener('input', debounce(e => {
     const val = searchEl.value.trim()
     if (val) params.set('search', val)
     else params.delete('search')
+    params.delete('page')
     go('results', Object.fromEntries(params))
   }
 }, 400))
