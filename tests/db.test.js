@@ -29,6 +29,35 @@ describe('listServers', () => {
     db.upsertServer({ id: 'b', name: 'B', raw: '{}' })
     expect(db.listServers()).toHaveLength(2)
   })
+
+  it('filters by name substring when search is provided', () => {
+    db.upsertServer({ id: 'a', name: 'Vanilla Land', raw: '{}' })
+    db.upsertServer({ id: 'b', name: 'Rusty Trio', raw: '{}' })
+    const result = db.listServers({ search: 'vanilla' })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('a')
+  })
+
+  it('sorts by retention DESC (nulls last) when sort=retention', () => {
+    db.upsertServer({ id: 'a', name: 'A', current_players: 100, raw: '{}' })
+    db.upsertServer({ id: 'b', name: 'B', current_players: 200, raw: '{}' })
+    db.upsertServer({ id: 'c', name: 'C', current_players: 50, raw: '{}' })
+    db.updateRetention('a', 0.8)
+    db.updateRetention('b', 0.3)
+    // c has no retention
+    const result = db.listServers({ sort: 'retention' })
+    expect(result[0].id).toBe('a')
+    expect(result[1].id).toBe('b')
+    expect(result[2].id).toBe('c')
+  })
+})
+
+describe('updateRetention', () => {
+  it('stores retention on an existing server', () => {
+    db.upsertServer({ id: 'a', name: 'A', raw: '{}' })
+    db.updateRetention('a', 0.72)
+    expect(db.getServer('a').retention).toBeCloseTo(0.72)
+  })
 })
 
 describe('snapshots', () => {

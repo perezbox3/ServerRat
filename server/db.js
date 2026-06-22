@@ -35,6 +35,8 @@ export function createDb(path) {
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
   db.exec(SCHEMA)
+  // Migration: add retention column when upgrading an existing DB
+  try { db.exec('ALTER TABLE servers ADD COLUMN retention REAL') } catch {}
 
   return {
     upsertServer({ id, name, region, type, wipe_day, wipe_freq, group_limit, current_players, max_players, last_wipe, next_wipe, raw }) {
@@ -61,11 +63,15 @@ export function createDb(path) {
       return this.getServer(id)
     },
 
+    updateRetention(id, retention) {
+      db.prepare('UPDATE servers SET retention = ? WHERE id = ?').run(retention ?? null, id)
+    },
+
     getServer(id) {
       return db.prepare('SELECT * FROM servers WHERE id = ?').get(id)
     },
 
-    listServers({ region, type, wipe_day, wipe_freq, group_limit } = {}) {
+    listServers({ region, type, wipe_day, wipe_freq, group_limit, search, sort } = {}) {
       const conditions = []
       const params = []
       if (region)      { conditions.push('region = ?');      params.push(region) }
@@ -73,8 +79,12 @@ export function createDb(path) {
       if (wipe_day)    { conditions.push('wipe_day = ?');    params.push(wipe_day) }
       if (wipe_freq)   { conditions.push('wipe_freq = ?');   params.push(wipe_freq) }
       if (group_limit) { conditions.push('group_limit = ?'); params.push(group_limit) }
+      if (search)      { conditions.push('name LIKE ?');     params.push(`%${search}%`) }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
-      return db.prepare(`SELECT * FROM servers ${where} ORDER BY current_players DESC`).all(...params)
+      const order = sort === 'retention'
+        ? 'ORDER BY retention DESC NULLS LAST'
+        : 'ORDER BY current_players DESC'
+      return db.prepare(`SELECT * FROM servers ${where} ${order}`).all(...params)
     },
 
     addSnapshot({ server_id, recorded_at, players }) {
