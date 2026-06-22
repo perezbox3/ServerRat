@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { computePopulationCurve } from '../curve.js'
+import { computePopulationCurve, computeDailyAverages } from '../curve.js'
 import { sanitize } from './validate.js'
 
 const HISTORY_TTL = 3600
@@ -17,12 +17,14 @@ export function createServersRouter({ db, bm }) {
 
   router.get('/', async (req, res) => {
     try {
-      if (db.isStale('servers-list', listTtl)) {
+      const filters = sanitize(req.query)
+      // Only refresh from BM when not searching — search queries against the local cache
+      if (!filters.search && db.isStale('servers-list', listTtl)) {
         const servers = await bm.listRustServers()
         for (const s of servers) db.upsertServer(s)
         db.touchCache('servers-list')
       }
-      res.json(db.listServers(sanitize(req.query)))
+      res.json(db.listServers(filters))
     } catch {
       res.status(502).json({ error: 'upstream error' })
     }
@@ -35,27 +37,61 @@ export function createServersRouter({ db, bm }) {
 
       const cacheKey = 'history:' + server.id
       if (db.isStale(cacheKey, HISTORY_TTL)) {
-        const start = server.last_wipe
-          ?? new Date(Date.now() - 8 * 86400000).toISOString()
-        const stop = new Date(
-          Math.min(Date.now(), new Date(start).getTime() + 8 * 86400000)
-        ).toISOString()
+        // Fetch 30 days so we can build a 30-day chart and multi-wipe history
+        const stop = new Date().toISOString()
+        const start = new Date(Date.now() - 30 * 86400000).toISOString()
         const history = await bm.getServerHistory(server.id, { start, stop })
         for (const pt of history) db.addSnapshot({ server_id: server.id, ...pt })
         db.touchCache(cacheKey)
       }
 
+      const snapshots = db.getSnapshots(server.id)
+
+      // Current-wipe curve
       let curve = null
       if (server.last_wipe) {
-        const obj = computePopulationCurve(db.getSnapshots(server.id), server.last_wipe)
+        const obj = computePopulationCurve(snapshots, server.last_wipe)
         curve = {
           values: [obj.day1, obj.day2, obj.day3, obj.day5, obj.day7],
           health: toHealth(obj.retention),
           retention: obj.retention,
         }
+        // Persist retention so the list endpoint can sort by it over time
+        if (obj.retention !== null) db.updateRetention(server.id, obj.retention)
       }
 
-      res.json({ ...server, curve })
+      // 30-day daily averages for the bar chart
+      const fromMs = Date.now() - 30 * 86400000
+      const pop30 = computeDailyAverages(snapshots, fromMs)
+
+      // Wipe history — compute a curve for each prior wipe within our 30-day window
+      const CADENCE_MS = { weekly: 7, biweekly: 14, monthly: 30 }
+      const wipe_history = []
+      if (server.last_wipe && server.wipe_freq) {
+        const cadMs = (CADENCE_MS[server.wipe_freq] ?? 7) * 86400000
+        for (let k = 0; k < 5; k++) {
+          const wipeMs = new Date(server.last_wipe).getTime() - k * cadMs
+          if (wipeMs < Date.now() - 31 * 86400000) break
+          const wipeTime = new Date(wipeMs).toISOString()
+          const nextWipeMs = wipeMs + cadMs
+          // Only use snapshots within this wipe's window
+          const wipeSnaps = snapshots.filter(s => {
+            const ms = Date.parse(s.recorded_at)
+            return ms >= wipeMs && ms < nextWipeMs
+          })
+          const c = computePopulationCurve(wipeSnaps, wipeTime)
+          if (c.day1 !== null) {
+            wipe_history.push({
+              wipe_date: wipeTime,
+              peak: c.day1,
+              day3: c.day3,
+              retention: c.retention,
+            })
+          }
+        }
+      }
+
+      res.json({ ...server, curve, pop30, wipe_history })
     } catch {
       res.status(502).json({ error: 'upstream error' })
     }

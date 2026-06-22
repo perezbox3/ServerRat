@@ -79,6 +79,21 @@ describe('GET /api/servers', () => {
     expect(res.body.error).toBeDefined()
   })
 
+  it('filters by server name substring when search param is provided', async () => {
+    const db = makeDb()
+    const bm = makeBm()
+    db.upsertServer(srv1) // 'Duo Land'
+    db.upsertServer(srv2) // 'Vanilla Land'
+    db.touchCache('servers-list')
+
+    const res = await request(createApp({ db, bm })).get('/api/servers?search=vanilla')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].id).toBe('srv-2')
+    expect(bm.listRustServers).not.toHaveBeenCalled()
+  })
+
   it('drops invalid type param — treats it as no filter', async () => {
     const db = makeDb()
     const bm = makeBm()
@@ -143,6 +158,53 @@ describe('GET /api/servers/:id', () => {
     const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
 
     expect(res.status).toBe(502)
+  })
+
+  it('returns pop30 array of 30 entries', async () => {
+    const db = makeDb()
+    const bm = makeBm({
+      getServerHistory: vi.fn(async () => [
+        { recorded_at: wipeOffset(0.5), players: 300 },
+      ]),
+    })
+    db.upsertServer(srv1)
+
+    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
+
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.pop30)).toBe(true)
+    expect(res.body.pop30).toHaveLength(30)
+  })
+
+  it('returns wipe_history array', async () => {
+    const db = makeDb()
+    const bm = makeBm({
+      getServerHistory: vi.fn(async () => [
+        { recorded_at: wipeOffset(0.5), players: 300 },
+        { recorded_at: wipeOffset(2.5), players: 200 },
+      ]),
+    })
+    db.upsertServer(srv1)
+
+    const res = await request(createApp({ db, bm })).get('/api/servers/srv-1')
+
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.wipe_history)).toBe(true)
+  })
+
+  it('stores retention in DB after computing curve', async () => {
+    const db = makeDb()
+    const bm = makeBm({
+      getServerHistory: vi.fn(async () => [
+        { recorded_at: wipeOffset(0.5), players: 300 },
+        { recorded_at: wipeOffset(2.5), players: 270 },
+      ]),
+    })
+    db.upsertServer(srv1)
+
+    await request(createApp({ db, bm })).get('/api/servers/srv-1')
+
+    expect(db.getServer('srv-1').retention).toBeCloseTo(0.9)
   })
 })
 

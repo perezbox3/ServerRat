@@ -2,6 +2,7 @@ const VALID_TYPE = new Set(['vanilla', '2x', '3x', '5x', '10x', 'modded', 'offic
 const VALID_WIPE_DAY = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
 const VALID_WIPE_FREQ = new Set(['weekly', 'biweekly', 'monthly'])
 const VALID_GROUP = new Set(['solo', 'duo', 'trio', 'quad', 'any'])
+const VALID_SORT = new Set(['pop', 'retention'])
 
 export function sanitize(params = {}) {
   const out = {}
@@ -10,5 +11,8 @@ export function sanitize(params = {}) {
   if (VALID_WIPE_FREQ.has(params.wipe_freq)) out.wipe_freq = params.wipe_freq
   if (VALID_GROUP.has(params.group_limit)) out.group_limit = params.group_limit
   if (/^[A-Z]{2}$/.test(params.region ?? '')) out.region = params.region
+  if (VALID_SORT.has(params.sort)) out.sort = params.sort
+  const search = String(params.search ?? '').trim().slice(0, 100)
+  if (search) out.search = search
   return out
 }
