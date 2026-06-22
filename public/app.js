@@ -433,7 +433,6 @@ function renderDetail(s, backScreen) {
   if (curve?.values) {
     const svg = renderSparkline(curve.values, { id: s.id + '-d', w: 300, h: 84, strong })
     const d3Ret = fmtRet(curve.retention)
-    // Guard against day1 = 0 to avoid Infinity
     const d7ratio = (curve.values[4] != null && curve.values[0] != null && curve.values[0] !== 0)
       ? curve.values[4] / curve.values[0]
       : null
@@ -451,6 +450,42 @@ function renderDetail(s, backScreen) {
     curvePanel = '<div class="cc-nodata">NO DATA YET</div>'
   }
 
+  const verdict = s.next_wipe
+    ? `next wipe in ${daysUntil(s.next_wipe)}`
+    : s.last_wipe
+    ? `last wiped ${daysSince(s.last_wipe)}`
+    : '—'
+
+  // Stat chips computed from pop30 array
+  const nonNull = (s.pop30 ?? []).filter(v => v !== null)
+  const avg30 = nonNull.length ? Math.round(nonNull.reduce((a, b) => a + b, 0) / nonNull.length) : null
+  const peak30 = nonNull.length ? Math.max(...nonNull) : null
+  const floor30 = nonNull.length ? Math.min(...nonNull) : null
+  const statRow = nonNull.length ? `
+    <div class="statrow">
+      ${avg30 != null ? `<div class="statchip"><div class="sc-v ok">${avg30}</div><div class="sc-k">30-DAY AVG</div></div>` : ''}
+      ${peak30 != null ? `<div class="statchip"><div class="sc-v">${peak30}</div><div class="sc-k">PEAK</div></div>` : ''}
+      ${floor30 != null ? `<div class="statchip"><div class="sc-v ${floor30 < (s.max_players || 1) * 0.15 ? 'bad' : ''}">${floor30}</div><div class="sc-k">FLOOR</div></div>` : ''}
+    </div>` : ''
+
+  const mapPanel = s.map_url ? `
+    <section class="panel dt-map">
+      <div class="panel-head">
+        <span class="panel-title">THE MAP</span>
+        <span class="panel-sub">${s.map_seed != null ? 'seed ' + esc(String(s.map_seed)) : esc(s.map_name) || 'Procedural'}</span>
+      </div>
+      <div class="panel-body map-body">
+        ${s.map_thumbnail ? `<a class="map-thumb-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">
+          <img class="map-thumb-img" src="${esc(s.map_thumbnail)}" alt="Rust map" loading="lazy" />
+        </a>` : ''}
+        <a class="btn-map-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">VIEW FULL MAP ON RUSTMAPS →</a>
+      </div>
+    </section>` : `
+    <section class="panel dt-map">
+      <div class="panel-head"><span class="panel-title">THE MAP</span></div>
+      <div class="panel-body"><div class="cc-nodata">map not available yet</div></div>
+    </section>`
+
   return `<div class="screen detail">
     <button class="dt-back" data-nav="${esc(backScreen)}">← BACK TO MAP</button>
 
@@ -464,8 +499,9 @@ function renderDetail(s, backScreen) {
           <span class="meta-pill">${wipeSummary}</span>
         </div>
         <div class="dt-verdict">
-          <span class="vk">LAST WIPE</span>
-          <span class="vt">${s.last_wipe ? daysSince(s.last_wipe) : '—'}</span>
+          <span class="vk">RAT SAYS</span>
+          <span class="vt">${verdict}</span>
+          ${health === 'healthy' ? '<span class="smiley"></span>' : ''}
         </div>
       </div>
       <div class="dt-head-r">
@@ -474,8 +510,29 @@ function renderDetail(s, backScreen) {
           ${healthTag(health)}
         </div>
         ${s.next_wipe ? `<div class="dt-next">NEXT WIPE <b>${daysUntil(s.next_wipe)}</b></div>` : ''}
+        ${s.ip && s.game_port ? `<div class="connect">
+          <span class="cn-lbl">CONNECT</span>
+          <code class="cn-ip">${esc(s.ip)}:${esc(String(s.game_port))}</code>
+          <button class="copy-btn" data-copy="${esc(s.ip)}:${esc(String(s.game_port))}">COPY</button>
+          <a class="connect-link" href="steam://connect/${esc(s.ip)}:${esc(String(s.game_port))}">LAUNCH →</a>
+        </div>` : ''}
       </div>
     </header>
+
+    <div class="dt-grid">
+      ${mapPanel}
+
+      <section class="panel dt-chart">
+        <div class="panel-head">
+          <span class="panel-title">POPULATION · LAST 30 DAYS</span>
+          <span class="panel-sub">avg concurrent players / day</span>
+        </div>
+        <div class="panel-body">
+          ${renderPop30(s.pop30, s.max_players)}
+          ${statRow}
+        </div>
+      </section>
+    </div>
 
     <div class="dt-row3">
       <section class="panel">
@@ -484,6 +541,15 @@ function renderDetail(s, backScreen) {
           <span class="panel-sub">this wipe · day 1→7</span>
         </div>
         <div class="panel-body">${curvePanel}</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><span class="panel-title">ABOUT</span></div>
+        <div class="panel-body">
+          ${s.description
+            ? `<div class="desc-body">${esc(s.description).replace(/\n/g, '<br/>')}</div>`
+            : '<div class="cc-nodata">no description provided</div>'}
+        </div>
       </section>
 
       <section class="panel">
@@ -499,44 +565,12 @@ function renderDetail(s, backScreen) {
             ${s.next_wipe ? `<div><dt>Next wipe</dt><dd>${daysUntil(s.next_wipe)}</dd></div>` : ''}
             ${s.queue > 0 ? `<div><dt>Queue</dt><dd>${esc(String(s.queue))} waiting</dd></div>` : ''}
             ${s.url ? `<div><dt>Website</dt><dd><a class="facts-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a></dd></div>` : ''}
-            ${s.ip && s.game_port ? `<div class="facts-connect"><dt>Direct connect</dt><dd>
-              <a class="connect-link" href="steam://connect/${esc(s.ip)}:${esc(String(s.game_port))}">${esc(s.ip)}:${esc(String(s.game_port))}</a>
-              <button class="copy-btn" data-copy="${esc(s.ip)}:${esc(String(s.game_port))}">COPY</button>
-            </dd></div>` : ''}
           </dl>
         </div>
       </section>
     </div>
 
-    ${s.map_url ? `
-    <section class="panel dt-map">
-      <div class="panel-head">
-        <span class="panel-title">MAP</span>
-        <span class="panel-sub">${esc(s.map_name) || 'Procedural'}${s.map_size ? ' · size ' + esc(String(s.map_size)) : ''}${s.map_seed != null ? ' · seed ' + esc(String(s.map_seed)) : ''}</span>
-      </div>
-      <div class="panel-body map-body">
-        ${s.map_thumbnail ? `<a class="map-thumb-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">
-          <img class="map-thumb-img" src="${esc(s.map_thumbnail)}" alt="Rust map" loading="lazy" />
-        </a>` : ''}
-        <a class="btn-map-link" href="${esc(s.map_url)}" target="_blank" rel="noopener noreferrer">VIEW FULL MAP ON RUSTMAPS →</a>
-      </div>
-    </section>` : ''}
-
-    ${s.description ? `
-    <section class="panel dt-desc">
-      <div class="panel-head"><span class="panel-title">ABOUT</span></div>
-      <div class="panel-body desc-body">${esc(s.description).replace(/\n/g, '<br/>')}</div>
-    </section>` : ''}
-
-    <section class="panel" style="margin-bottom:22px">
-      <div class="panel-head">
-        <span class="panel-title">POPULATION · LAST 30 DAYS</span>
-        <span class="panel-sub">avg concurrent players / day</span>
-      </div>
-      <div class="panel-body">${renderPop30(s.pop30, s.max_players)}</div>
-    </section>
-
-    <section class="panel dt-wipes">
+    <section class="panel dt-wipes" style="margin-bottom:22px">
       <div class="panel-head">
         <span class="panel-title">WIPE HISTORY</span>
         <span class="panel-sub">up to last 4 wipes</span>
