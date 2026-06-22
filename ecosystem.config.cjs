@@ -4,6 +4,7 @@ module.exports = {
       name: 'serverrat',
       script: './server/index.js',
       interpreter: 'node',
+      exec_mode: 'fork',
       instances: 1,
       autorestart: true,
       watch: false,
@@ -16,8 +17,9 @@ module.exports = {
       name: 'serverrat-collector',
       script: './scripts/collect.js',
       interpreter: 'node',
+      exec_mode: 'fork',    // fork mode required — cluster mode breaks gamedig UDP sockets
       instances: 1,
-      autorestart: false,    // don't restart on crash — wait for next cron tick
+      autorestart: false,   // don't restart on crash — wait for next cron tick
       cron_restart: '0 */3 * * *',  // run every 3 hours
       watch: false,
       env: {
