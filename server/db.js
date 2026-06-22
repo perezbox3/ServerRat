@@ -52,6 +52,7 @@ export function createDb(path) {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
                    current_players, max_players, last_wipe, next_wipe,
                    ip, queue, map_seed, map_size, description, url, raw }) {
+      if (!name) return null  // name is NOT NULL in schema; skip rather than throw
       // If another BM entry already owns this steam_id, don't claim it here —
       // avoids UNIQUE constraint failures when BM returns duplicate steam_ids.
       if (steam_id) {

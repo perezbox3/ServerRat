@@ -17,7 +17,9 @@ export async function runCollection({ db, bm, steam = null, sleepMs = 1000 } = {
     try {
       const { servers: batch, nextUrl: next } = await bm.fetchPageCursor(nextUrl)
       if (!batch.length) break
-      for (const s of batch) db.upsertServer(s)
+      for (const s of batch) {
+        try { db.upsertServer(s) } catch (e) { console.warn(`[collector] skip ${s.id}: ${e.message}`) }
+      }
       bmUpserted += batch.length
       bmPages++
       process.stdout.write(`\r[collector] BM page ${page + 1}: ${bmUpserted} servers`)
