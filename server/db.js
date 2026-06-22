@@ -52,6 +52,12 @@ export function createDb(path) {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
                    current_players, max_players, last_wipe, next_wipe,
                    ip, queue, map_seed, map_size, description, url, raw }) {
+      // If another BM entry already owns this steam_id, don't claim it here —
+      // avoids UNIQUE constraint failures when BM returns duplicate steam_ids.
+      if (steam_id) {
+        const clash = db.prepare('SELECT id FROM servers WHERE steam_id = ? AND id != ?').get(steam_id, id)
+        if (clash) steam_id = null
+      }
       db.prepare(`
         INSERT INTO servers (id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
           current_players, max_players, last_wipe, next_wipe, ip, queue, map_seed, map_size, description, url, raw, updated_at)
