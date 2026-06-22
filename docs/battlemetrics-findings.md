@@ -150,3 +150,23 @@ Not precisely documented by BattleMetrics, but observed:
 - `/players` — track specific players across servers
 - Server groups / org features (paid)
 - Real-time WebSocket feed (paid)
+
+
+---
+
+## Backfill Spike — 2026-06-22
+
+**Verdict: BACKFILL WITH FLOOR**
+
+| Metric | Value |
+|---|---|
+| Servers probed | 100 |
+| Success rate | 80.0% |
+| 429s hit | 0 |
+| 400s hit | 20 |
+| Servers yielding a curve | 56 / 80 (70.0%) |
+| Median datapoints / server | 59 |
+| Wall time for 100 servers | 128.5s |
+| Estimated full-catalog sweep (~3k servers) | ~64 min |
+
+**Scope for Task 2:** Backfill BM servers above a population floor (e.g. current_players >= 10) to stay within rate budget. Population floor: `current_players >= 10`.

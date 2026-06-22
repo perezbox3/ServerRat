@@ -49,6 +49,11 @@ export function createDb(path) {
   try { db.exec('ALTER TABLE servers ADD COLUMN map_url TEXT') } catch {}
   try { db.exec('ALTER TABLE servers ADD COLUMN map_thumbnail TEXT') } catch {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_steam_id ON servers(steam_id) WHERE steam_id IS NOT NULL') } catch {}
+  // Deduplicate snapshots then enforce uniqueness so concurrent writers don't double-store an hour
+  try {
+    db.exec('DELETE FROM snapshots WHERE id NOT IN (SELECT MIN(id) FROM snapshots GROUP BY server_id, recorded_at)')
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_server_time ON snapshots(server_id, recorded_at)')
+  } catch {}
 
   return {
     upsertServer({ id, steam_id, name, region, type, wipe_day, wipe_freq, group_limit,
@@ -196,6 +201,19 @@ export function createDb(path) {
         : 'ORDER BY current_players DESC'
       const offset = (page - 1) * limit
       return db.prepare(`SELECT * FROM servers ${where} ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset)
+    },
+
+    // Returns BM-indexed servers eligible for history backfill, ordered by
+    // most active first so popular servers get curves in the first run.
+    listServersForBackfill({ floor = 5, cap = 500 } = {}) {
+      return db.prepare(`
+        SELECT id, last_wipe FROM servers
+        WHERE id NOT LIKE 'steam_%'
+          AND last_wipe IS NOT NULL
+          AND (current_players IS NULL OR current_players >= ?)
+        ORDER BY current_players DESC NULLS LAST
+        LIMIT ?
+      `).all(floor, cap)
     },
 
     addSnapshot({ server_id, recorded_at, players }) {
